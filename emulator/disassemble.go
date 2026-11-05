@@ -43,10 +43,10 @@ var gdbRegNames = []string{
 	"tp",             // thread pointer
 	"t0", "t1", "t2", // temps
 	"fp", // frame pointer / save 0
-	"s1", // save 1
+	"s1", // callee save 1
 	// arguments
 	"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
-	// more saves
+	// more callee saves
 	"s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11",
 	// more temps
 	"t3", "t4", "t5", "t6",

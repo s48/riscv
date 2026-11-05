@@ -35,6 +35,7 @@ func convertTypes(call *cps.CallNodeT) {
 var basicTypes = map[types.BasicKind]nativeTypeT{
 	types.Bool:        theBoolType,
 	types.UntypedBool: theBoolType,
+	types.UntypedInt:  theInt64Type,
 	types.Int:         theInt64Type,
 	types.Int64:       theInt64Type,
 	types.Uint:        theUint64Type,

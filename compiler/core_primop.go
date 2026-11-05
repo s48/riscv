@@ -4,8 +4,10 @@
 package compiler
 
 import (
+	"fmt"
 	"go/constant"
 	"go/token"
+	"slices"
 
 	"github.com/s48/transform/cps"
 )
@@ -95,16 +97,16 @@ func init() {
 type procLambdaPrimopT struct{ cps.ProcLambdaPrimopT }
 
 func (primop *procLambdaPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	return nil, lambdaRegSpecs(call)
+	return nil, lambdaOutRegSpecs(call)
 }
 func (primop *procLambdaPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {}
 
 type procCallPrimopT struct{ cps.ProcCallPrimopT }
 
 func (primop *procCallPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	inputSpecs := lambdaRegSpecs(cps.CalledLambda(call))
+	inputSpecs := lambdaInRegSpecs(cps.CalledLambda(call))
 	inputSpecs[0] = nil // no register needed for the procedure
-	return inputSpecs, lambdaRegSpecs(call)
+	return inputSpecs, lambdaOutRegSpecs(call)
 }
 
 type returnPrimopT struct{ cps.ReturnPrimopT }
@@ -123,7 +125,7 @@ func (primop *returnPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 type jumpLambdaPrimopT struct{ cps.JumpLambdaPrimopT }
 
 func (primop *jumpLambdaPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	return nil, lambdaRegSpecs(call)
+	return nil, lambdaOutRegSpecs(call)
 }
 func (primop *jumpLambdaPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {}
 
@@ -228,15 +230,22 @@ func (primop *letrecPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUs
 
 // The nil at the start is for the variable bound to the jump target.
 func (primop *jumpPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	cps.LinkJumpRegisters(call)
-	inputs := append(regUsesT{nil}, lambdaRegSpecs(cps.CalledLambda(call))...)
+	inputs := append(regUsesT{nil}, lambdaInRegSpecs(cps.CalledLambda(call))...)
 	return inputs, nil
 }
 
-func lambdaRegSpecs(lambda *cps.CallNodeT) regUsesT {
+func lambdaInRegSpecs(lambda *cps.CallNodeT) regUsesT {
 	specs := make(regUsesT, len(lambda.Outputs))
 	for i := range specs {
 		specs[i] = intIn // all we have at this point
+	}
+	return specs
+}
+
+func lambdaOutRegSpecs(lambda *cps.CallNodeT) regUsesT {
+	specs := make(regUsesT, len(lambda.Outputs))
+	for i := range specs {
+		specs[i] = intOut // all we have at this point
 	}
 	return specs
 }
@@ -382,34 +391,61 @@ func (primop *syscallPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) 
 //----------------------------------------------------------------
 
 func init() {
-	addPrimop(&binopPrimopT{"+", 0, 0})
-	addPrimop(&binopPrimopT{"-", 0, 0x20})
-	addPrimop(&binopPrimopT{"^", 4, 0})
-	addPrimop(&binopPrimopT{"|", 6, 0})
-	addPrimop(&binopPrimopT{"&", 7, 0})
+	addPrimop(&notPrimopT{})
 }
 
-type binopPrimopT struct {
-	name   string
-	funct3 uint32
-	funct7 uint32
+type notPrimopT struct{}
+
+func (primop *notPrimopT) Name() string                 { return "!" }
+func (primop *notPrimopT) SideEffects() bool            { return false }
+func (primop *notPrimopT) Simplify(call *cps.CallNodeT) { simplifyNot(call) }
+func (primop *notPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn), uses(intOut)
 }
 
-func (primop *binopPrimopT) Name() string                 { return primop.name }
-func (primop *binopPrimopT) SideEffects() bool            { return false }
-func (primop *binopPrimopT) Simplify(call *cps.CallNodeT) { cps.SimplifyArithBinop(call) }
-func (primop *binopPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	return uses(intIn, intIn), uses(intOut)
-}
-
-func (primop *binopPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	insts.rFormat(
-		primop.funct7,
-		call.Inputs[1],
+func (primop *notPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	insts.iFormat(
+		1, // imm
 		call.Inputs[0],
-		primop.funct3,
+		0x4, // xor
 		call.Outputs[0],
-		0x3B)
+		0x13)
+}
+
+// 1. !true -> false, !false -> true
+// 2. !!A -> A
+// 3. if !A then C0 else C1 -> if A then C1 else C0
+func simplifyNot(call *cps.CallNodeT) {
+	arg := call.Inputs[0]
+	if cps.IsLiteralNode(arg) {
+		literal := arg.(*cps.LiteralNodeT)
+		value := literal.Constant()
+		if value.Kind() != constant.Bool {
+			panic(fmt.Sprintf("notPrimop has non-boolean argument '%s'", value.ExactString()))
+		}
+		literal.Value = constant.MakeBool(!constant.BoolVal(value))
+		call.Primop = cps.LookupPrimop("let")
+		cps.MarkChanged(call)
+		return
+	}
+	cps.SimplifyNext(call)
+	refs := slices.Clone(call.Outputs[0].Refs)
+	for _, ref := range refs {
+		parent := ref.Parent()
+		if parent.Primop.Name() == "!" {
+			for _, ref := range parent.Outputs[0].Refs {
+				cps.ReplaceInput(ref, cps.CopyNodeTree(arg))
+			}
+		} else if parent.Primop.Name() == "if" {
+			cps.ReplaceInput(parent.Inputs[0], cps.CopyNodeTree(arg))
+			temp := cps.DetachNext(parent.Next[0])
+			cps.AttachNext(parent, cps.DetachNext(parent.Next[1]), 0)
+			cps.AttachNext(parent, temp, 1)
+		}
+	}
+	if len(call.Outputs[0].Refs) == 0 {
+		cps.RemoveCall(call)
+	}
 }
 
 //----------------------------------------------------------------
@@ -446,28 +482,24 @@ func (primop *printPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 
 //----------------------------------------------------------------
 
-func valueAsUint32(node cps.NodeT) uint32 {
-	value := node.(*cps.LiteralNodeT).Constant()
-	signed, exact := constant.Int64Val(value)
-	if exact {
-		return uint32(signed)
-	}
-	unsigned, exact := constant.Uint64Val(value)
-	if exact {
-		return uint32(unsigned)
-	}
-	panic("literal node's value is not a uint32: " + value.ExactString())
-}
-
 func valueAsInt(node cps.NodeT) int {
 	value := node.(*cps.LiteralNodeT).Constant()
-	signed, exact := constant.Int64Val(value)
-	if exact {
-		return int(signed)
+	typ := node.(*cps.LiteralNodeT).Type
+	if typ == theBoolType {
+		if constant.BoolVal(value) {
+			return 1
+		} else {
+			return 0
+		}
+	} else {
+		signed, exact := constant.Int64Val(value)
+		if exact {
+			return int(signed)
+		}
+		unsigned, exact := constant.Uint64Val(value)
+		if exact {
+			return int(unsigned)
+		}
+		panic("literal node's value is not an int: " + value.ExactString())
 	}
-	unsigned, exact := constant.Uint64Val(value)
-	if exact {
-		return int(unsigned)
-	}
-	panic("literal node's value is not a uint32: " + value.ExactString())
 }

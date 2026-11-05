@@ -22,7 +22,7 @@ func CompileModule(
 	sourceDir string,
 	entryPointName string,
 	objectFileName string,
-) (*emulator.CpuT, []int) {
+) (*emulator.CpuT, []int, int) {
 	debug := parseDebugPhases()
 	frontEnd := front.MakeFrontEnd([]string{"github.com/s48/riscv/compiler/primitives"}, nil)
 	frontEnd.LoadPackage(sourceDir)
@@ -79,7 +79,7 @@ func CompileModule(
 		fmt.Printf("Before register allocation ================")
 		cps.PpCps(entryPoint)
 	}
-	cps.AllocateRegisters(entryPoint)
+	cps.AllocateRegisters(entryPoint, intRegisters)
 	if debug.Contains("register") {
 		fmt.Printf("After registers allocation ================")
 		cps.PpCps(entryPoint)
@@ -137,7 +137,7 @@ func CompileModule(
 			inputs[i] = vart.Register.(*registerT).number
 		}
 	}
-	return cpu, inputs
+	return cpu, inputs, instCount
 }
 
 func putFuncsInLetrec(
