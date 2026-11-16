@@ -21,6 +21,7 @@ type testT struct {
 
 var tests = []*testT{
 	{"fib", []uint64{19}, []uint64{6765}, 0},
+	{"branch", []uint64{1, 5}, []uint64{3}, 0},
 	{"add", []uint64{3, 4}, []uint64{7}, 0},
 	{"sub", []uint64{10, 3}, []uint64{7}, 0},
 	{"bitXor", []uint64{12, 10}, []uint64{6}, 0},

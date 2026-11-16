@@ -141,14 +141,14 @@ func regNumber(rawValue any) uint32 {
 	case *registerT:
 		return uint32(value.number)
 	case *cps.VariableT:
-		switch reg := value.Register.(type) {
+		switch reg := value.Register().(type) {
 		case *registerT:
 			return uint32(reg.number)
 		default:
 			panic(fmt.Sprintf("Variable %s has no register '%v'", value, reg))
 		}
 	case *cps.ReferenceNodeT:
-		return regNumber(value.Variable)
+		return uint32(value.Variable.ReferenceRegister(value).(*registerT).number)
 	default:
 		panic(fmt.Sprintf("Cannot coerce to register '%v' (%T)", rawValue, rawValue))
 	}

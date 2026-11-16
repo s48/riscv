@@ -15,6 +15,20 @@ func fib(x int) int {
 	return 0
 }
 
+func branch(x int, y int) int {
+	if x < y {
+		x += 1
+	} else {
+		x -= 1
+	}
+	if x < y {
+		x += 1
+	} else {
+		x -= 1
+	}
+	return x
+}
+
 func add(x int, y int) int {
 	print(x + y)
 	return 0

@@ -134,7 +134,7 @@ func CompileModule(
 	inputs := make([]int, len(entryPoint.Outputs)-1)
 	for i, vart := range entryPoint.Outputs[1:] {
 		if vart.Register != nil {
-			inputs[i] = vart.Register.(*registerT).number
+			inputs[i] = vart.Register().(*registerT).number
 		}
 	}
 	return cpu, inputs, instCount

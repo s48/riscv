@@ -45,7 +45,6 @@ var intRegs = make([]cps.RegisterT, numIntRegs)
 func reg(i int) *registerT { return intRegs[i].(*registerT) }
 
 var intIn = &cps.RegUseSpecT{PhaseOffset: cps.EarlyRegUse, Class: intRegisters}
-var intMiddle = &cps.RegUseSpecT{PhaseOffset: cps.MiddleRegUse, Class: intRegisters}
 var intOut = &cps.RegUseSpecT{PhaseOffset: cps.LateRegUse, Class: intRegisters}
 
 type regUsesT = []*cps.RegUseSpecT

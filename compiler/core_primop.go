@@ -252,7 +252,7 @@ func lambdaOutRegSpecs(lambda *cps.CallNodeT) regUsesT {
 
 func (primop *jumpPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 	target := cps.CalledLambda(call)
-	parallelMove(insts, nodesToVars(call.Inputs[1:]), target.Outputs)
+	parallelMove(insts, call.Inputs[1:], target.Outputs)
 }
 
 func (primop *jumpPrimopT) jumpSize(call *cps.CallNodeT, offset int, offsets []int) int {
@@ -275,14 +275,6 @@ func (primop *jumpPrimopT) generateJump(
 	}
 }
 
-func nodesToVars(nodes []cps.NodeT) []*cps.VariableT {
-	vars := make([]*cps.VariableT, len(nodes))
-	for i, node := range nodes {
-		vars[i] = node.(*cps.ReferenceNodeT).Variable
-	}
-	return vars
-}
-
 // Algorithm from:
 //   Tilting at windmills with Coq: formal verification of a
 //   compilation algorithm for parallel moves
@@ -303,14 +295,14 @@ const (
 	pending         // value is pending in an earlier recursive call
 )
 
-func parallelMove(insts *riscvInstsT, fromVars []*cps.VariableT, toVars []*cps.VariableT) {
-	count := len(fromVars)
+func parallelMove(insts *riscvInstsT, fromRefs []cps.NodeT, toVars []*cps.VariableT) {
+	count := len(fromRefs)
 	fromRegs := make([]cps.RegisterT, count)
 	toRegs := make([]cps.RegisterT, count)
 	locations := make([]int, count)
-	for i, fromVar := range fromVars {
-		from := fromVar.Register
-		to := toVars[i].Register
+	for i, fromRef := range fromRefs {
+		from := fromRef.(*cps.ReferenceNodeT).Variable.ReferenceRegister(fromRef)
+		to := toVars[i].Register()
 		if from == nil || to == nil {
 			locations[i] = inDest
 		} else {
