@@ -17,11 +17,20 @@ type instT struct {
 	pos  token.Pos
 }
 
-type codeGeneratorT struct{}
+type codeGeneratorT struct {
+	moves map[*cps.CallNodeT]*cps.RegMovesT
+}
 
 func (generator *codeGeneratorT) GenerateCall(call *cps.CallNodeT) ([]instT, int) {
 	insts := &riscvInstsT{}
+	moves := generator.moves[call]
+	if moves != nil {
+		parallelMove(insts, moves.Before)
+	}
 	call.Primop.(riscvPrimopT).generate(insts, call)
+	if moves != nil {
+		parallelMove(insts, moves.Jump)
+	}
 	result := addSource(insts.instructions, call.Source())
 	return result, len(result)
 }
@@ -250,10 +259,8 @@ func lambdaOutRegSpecs(lambda *cps.CallNodeT) regUsesT {
 	return specs
 }
 
-func (primop *jumpPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	target := cps.CalledLambda(call)
-	parallelMove(insts, call.Inputs[1:], target.Outputs)
-}
+// The moves for the arguments are done by the code generator.
+func (primop *jumpPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {}
 
 func (primop *jumpPrimopT) jumpSize(call *cps.CallNodeT, offset int, offsets []int) int {
 	if offsets[0] == 0 {
@@ -295,21 +302,15 @@ const (
 	pending         // value is pending in an earlier recursive call
 )
 
-func parallelMove(insts *riscvInstsT, fromRefs []cps.NodeT, toVars []*cps.VariableT) {
-	count := len(fromRefs)
+func parallelMove(insts *riscvInstsT, moves []cps.RegMoveT) {
+	count := len(moves)
 	fromRegs := make([]cps.RegisterT, count)
 	toRegs := make([]cps.RegisterT, count)
 	locations := make([]int, count)
-	for i, fromRef := range fromRefs {
-		from := fromRef.(*cps.ReferenceNodeT).Variable.ReferenceRegister(fromRef)
-		to := toVars[i].Register()
-		if from == nil || to == nil {
-			locations[i] = inDest
-		} else {
-			fromRegs[i] = from
-			toRegs[i] = to
-			locations[i] = inSource
-		}
+	for i, move := range moves {
+		fromRegs[i] = move.From
+		toRegs[i] = move.To
+		locations[i] = inSource
 	}
 	// Recursive function that moves the 'i'th value to its target
 	// register.

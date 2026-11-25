@@ -79,13 +79,13 @@ func CompileModule(
 		fmt.Printf("Before register allocation ================")
 		cps.PpCps(entryPoint)
 	}
-	cps.AllocateRegisters(entryPoint, intRegisters)
+	moves := cps.AllocateRegisters(entryPoint, intRegisters)
 	if debug.Contains("register") {
 		fmt.Printf("After registers allocation ================")
 		cps.PpCps(entryPoint)
 	}
 
-	codeBlocks := cps.Assemble(entryPoint, &codeGeneratorT{})
+	codeBlocks := cps.Assemble(entryPoint, &codeGeneratorT{moves})
 	instCount := 0
 	for _, block := range codeBlocks {
 		for _, insts := range block.Instructions {
