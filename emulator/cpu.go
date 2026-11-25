@@ -796,7 +796,7 @@ func (cpu *CpuT) readWord(address uint64) uint32 {
 }
 
 func (cpu *CpuT) readDoubleWord(address uint64) uint64 {
-	bytes := make([]byte, 16)
+	bytes := make([]byte, 8)
 	cpu.copyFromMemory(address, bytes)
 	return binary.LittleEndian.Uint64(bytes)
 }

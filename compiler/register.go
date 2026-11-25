@@ -27,14 +27,18 @@ func makeRegister(class *cps.RegisterClassT, number int) *registerT {
 }
 
 const (
-	numIntRegs  = 32
-	intRegsMask = 0xFFFFFFF0 // 0b1111 are reserved
+	numIntRegs = 32
+	// For now only the callee-saved registers, s0-s11, are allocated.
+	// Values that are live across calls are then preserved.
+	intRegsMask = 1<<8 | 1<<9 | 0x3FF<<18
+	numArgRegs  = 8 // a0-a7
 )
 
 var r0 *registerT      // 0
-var rTemp *registerT   // 1
+var rReturn *registerT // 1, the return address
 var rStack *registerT  // 2
 var rGlobal *registerT // 3
+var rTemp *registerT   // 5, t0, for use within a call's code
 // These are special for system calls.
 var rArg0 *registerT
 var rArg7 *registerT
@@ -75,12 +79,27 @@ func init() {
 		reg(i).name = name
 	}
 	r0 = reg(0)
-	rTemp = reg(1)
+	rReturn = reg(1)
+	rTemp = reg(5)
+	contIn = &cps.RegUseSpecT{PhaseOffset: cps.EarlyRegUse, Class: intRegisters, Fixed: rReturn}
+	contOut = &cps.RegUseSpecT{PhaseOffset: cps.LateRegUse, Class: intRegisters, Fixed: rReturn}
 	rStack = reg(2)
 	rGlobal = reg(3)
 	rArg0 = reg(10)
 	rArg7 = reg(17)
 }
+
+// Specs for values that are passed in a0-a7, with continuations in ra.
+func argSpec(i int, phase int) *cps.RegUseSpecT {
+	if numArgRegs <= i {
+		panic("too many arguments or return values, only 8 are supported")
+	}
+	return &cps.RegUseSpecT{PhaseOffset: phase, Class: intRegisters, Fixed: reg(10 + i)}
+}
+
+// These are set in init().
+var contIn *cps.RegUseSpecT
+var contOut *cps.RegUseSpecT
 
 func uses(uses ...*cps.RegUseSpecT) regUsesT {
 	return uses

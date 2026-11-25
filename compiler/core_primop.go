@@ -13,42 +13,65 @@ import (
 )
 
 type instT struct {
-	bits uint32
-	pos  token.Pos
+	bits   uint32
+	pos    token.Pos
+	callTo *cps.CallNodeT // procedure for a 'jal' that has to be filled in
 }
 
 type codeGeneratorT struct {
-	moves     map[*cps.CallNodeT]*cps.RegMovesT
-	frameSize int // in bytes
+	allocation *cps.RegAllocationT
+	frame      *frameT // for the procedure being generated
 }
 
-// The frame has the spill slots and one more for use by parallelMove.
 func makeCodeGenerator(allocation *cps.RegAllocationT) *codeGeneratorT {
-	frameSize := 0
-	if 0 < allocation.NumSlots {
-		frameSize = ((allocation.NumSlots+1)*8 + 15) &^ 15 // keep the stack aligned
+	return &codeGeneratorT{allocation: allocation}
+}
+
+// The frame has the spill slots, one more for use by parallelMove, and
+// the callee-saved registers that the procedure uses.
+type frameT struct {
+	size        int // in bytes, zero if there is no frame
+	scratchSlot int
+	saved       []cps.RegisterT
+	savedSlot   int // slot of the first saved register
+}
+
+// The entry point never returns, so it doesn't need to save registers.
+func (generator *codeGeneratorT) setProc(proc *cps.CallNodeT, isEntry bool) {
+	allocation := generator.allocation.Frames[proc]
+	frame := &frameT{
+		scratchSlot: allocation.NumSlots,
+		saved:       allocation.Registers,
+		savedSlot:   allocation.NumSlots + 1,
 	}
-	return &codeGeneratorT{allocation.Moves, frameSize}
+	if isEntry {
+		frame.saved = nil
+	}
+	if 0 < allocation.NumSlots || 0 < len(frame.saved) {
+		frame.size = ((frame.savedSlot+len(frame.saved))*8 + 15) &^ 15 // keep the stack aligned
+	}
+	generator.frame = frame
 }
 
 func (generator *codeGeneratorT) GenerateCall(call *cps.CallNodeT) ([]instT, int) {
-	insts := &riscvInstsT{frameSize: generator.frameSize}
-	moves := generator.moves[call]
+	insts := &riscvInstsT{frame: generator.frame}
+	moves := generator.allocation.Moves[call]
 	if moves != nil {
 		parallelMove(insts, moves.Before)
+		parallelMove(insts, moves.At)
 	}
 	call.Primop.(riscvPrimopT).generate(insts, call)
-	if moves != nil {
-		parallelMove(insts, moves.Jump)
-	}
 	result := addSource(insts.instructions, call.Source())
+	if insts.callTo != nil {
+		result[len(result)-1].callTo = insts.callTo
+	}
 	return result, len(result)
 }
 
 func addSource(insts []uint32, pos token.Pos) []instT {
 	result := make([]instT, len(insts))
 	for i, bits := range insts {
-		result[i] = instT{bits, pos}
+		result[i] = instT{bits: bits, pos: pos}
 	}
 	return result
 }
@@ -115,21 +138,37 @@ func init() {
 
 type procLambdaPrimopT struct{ cps.ProcLambdaPrimopT }
 
+// The continuation is in ra and the arguments in a0-a7.
 func (primop *procLambdaPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	return nil, lambdaOutRegSpecs(call)
+	outputs := make(regUsesT, len(call.Outputs))
+	outputs[0] = contOut
+	for i := range outputs[1:] {
+		outputs[i+1] = argSpec(i, cps.LateRegUse)
+	}
+	return nil, outputs
 }
 func (primop *procLambdaPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	if insts.frameSize != 0 {
-		insts.addImm(rStack, rStack, -insts.frameSize)
+	frame := insts.frame
+	if frame.size != 0 {
+		insts.addImm(rStack, rStack, -frame.size)
+	}
+	for i, register := range frame.saved {
+		insts.store(register, rStack, (frame.savedSlot+i)*8)
 	}
 }
 
 type procCallPrimopT struct{ cps.ProcCallPrimopT }
 
 func (primop *procCallPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	inputSpecs := lambdaInRegSpecs(cps.CalledLambda(call))
-	inputSpecs[0] = nil // no register needed for the procedure
-	return inputSpecs, lambdaOutRegSpecs(call)
+	inputs := make(regUsesT, len(call.Inputs))
+	for i := range inputs[1:] { // no register needed for the procedure
+		inputs[i+1] = argSpec(i, cps.EarlyRegUse)
+	}
+	outputs := make(regUsesT, len(call.Outputs))
+	for i := range outputs {
+		outputs[i] = argSpec(i, cps.LateRegUse)
+	}
+	return inputs, outputs
 }
 
 type returnPrimopT struct{ cps.ReturnPrimopT }
@@ -137,16 +176,31 @@ type returnPrimopT struct{ cps.ReturnPrimopT }
 func (primop *returnPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
 	inputs := make(regUsesT, len(call.Inputs))
 	tuple := call.InputVariable(0).Type.(*nativeTupleT)
-	inputs[0] = intIn // return pointer
-	for i, _ := range tuple.contents {
-		inputs[i+1] = intIn // all we have at this point
+	inputs[0] = contIn // return pointer
+	for i := range tuple.contents {
+		inputs[i+1] = argSpec(i, cps.EarlyRegUse)
 	}
 	return inputs, nil
 }
+
+// The return values and the continuation have already been moved to a0-a7
+// and ra.
 func (primop *returnPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	if insts.frameSize != 0 {
-		insts.addImm(rStack, rStack, insts.frameSize)
+	frame := insts.frame
+	for i, register := range frame.saved {
+		insts.load(rStack, (frame.savedSlot+i)*8, register)
 	}
+	if frame.size != 0 {
+		insts.addImm(rStack, rStack, frame.size)
+	}
+	insts.iFormat(0, rReturn, 0, r0, 0x67) // jalr zero, 0(ra)
+}
+
+// The arguments have already been moved to a0-a7.  The offset in the 'jal'
+// is filled in once the code for all procedures has been laid out.
+func (primop *procCallPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	insts.jFormat(0, rReturn, 0x6f)
+	insts.callTo = cps.CalledLambda(call)
 }
 
 type jumpLambdaPrimopT struct{ cps.JumpLambdaPrimopT }
@@ -334,7 +388,7 @@ func parallelMove(insts *riscvInstsT, moves []cps.RegMoveT) {
 		tos[i] = move.To
 		locations[i] = inSource
 		if move.From.Register == nil && move.To.Register == nil {
-			temp = cps.RegLocationT{Slot: insts.frameSize/8 - 1}
+			temp = cps.RegLocationT{Slot: insts.frame.scratchSlot}
 		}
 	}
 	// Recursive function that moves the 'i'th value to its target

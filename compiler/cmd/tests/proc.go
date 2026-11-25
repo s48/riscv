@@ -346,3 +346,74 @@ func geq(x int, y int) int {
 	print(r2)
 	return 0
 }
+
+func square(x int) int {
+	return x * x
+}
+
+func calls(x int, y int) int {
+	print(square(x) + square(y))
+	return 0
+}
+
+// Recursion, with 'n' live across the call.
+func fact(n int) int {
+	if n < 2 {
+		return 1
+	}
+	return n * fact(n-1)
+}
+
+func recursive(n int) int {
+	print(fact(n))
+	print(fact(n + 1))
+	return 0
+}
+
+func divmod(x int, y int) (int, int) {
+	return x / y, x % y
+}
+
+func sum8(a int, b int, c int, d int, e int, f int, g int, h int) int {
+	return a + 2*b + 3*c + 4*d + 5*e + 6*f + 7*g + 8*h
+}
+
+// Multiple results, many arguments, constant arguments, calls in a loop,
+// and calls as arguments.
+func manyCalls(x int, y int) int {
+	q, r := divmod(x, y)
+	print(q)
+	print(r)
+	total := 0
+	for i := range y {
+		q, r = divmod(x+i, y)
+		total += q*10 + r
+	}
+	print(total)
+	print(sum8(1, 2, 3, 4, 5, 6, 7, 8))
+	print(sum8(x, y, q, r, total, x, y, fact(4)))
+	print(fact(fact(3)))
+	return 0
+}
+
+// More values live across a call than there are callee-saved registers.
+func pressure(x int, y int) int {
+	a := x + 1
+	b := x + 2
+	c := x + 3
+	d := x + 4
+	e := x + 5
+	f := x + 6
+	g := x + 7
+	h := x + 8
+	i := x + 9
+	j := x + 10
+	k := x + 11
+	l := x + 12
+	m := x + 13
+	n := x + 14
+	z := fact(y)
+	print(a + b + c + d + e + f + g + h + i + j + k + l + m + n + z)
+	print(a*b - c*d + e*f - g*h + i*j - k*l + m*n)
+	return 0
+}

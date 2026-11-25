@@ -12,7 +12,8 @@ import (
 
 type riscvInstsT struct {
 	instructions []uint32
-	frameSize    int // in bytes, zero if there isn't one
+	frame        *frameT
+	callTo       *cps.CallNodeT // procedure called by the last instruction
 }
 
 // funct7:7 rs2:5 rs1:5 funct3:3 rd:5 op:7
@@ -126,13 +127,13 @@ func (insts *riscvInstsT) addImm(source any, dest any, imm int) {
 }
 
 func (insts *riscvInstsT) store(source any, address any, offset int) {
-	// 2 = 64-bit word
-	insts.sFormat(offset, source, address, 2, 0x23)
+	// 3 = 64-bit double word (2 would be a 32-bit word)
+	insts.sFormat(offset, source, address, 3, 0x23)
 }
 
 func (insts *riscvInstsT) load(address any, offset int, dest any) {
-	// 2 = 64-bit word
-	insts.iFormat(offset, address, 2, dest, 0x03)
+	// 3 = 64-bit double word (2 would be a sign-extended 32-bit word)
+	insts.iFormat(offset, address, 3, dest, 0x03)
 }
 
 //----------------------------------------------------------------

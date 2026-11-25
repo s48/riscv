@@ -85,27 +85,45 @@ func CompileModule(
 		cps.PpCps(entryPoint)
 	}
 
-	codeBlocks := cps.Assemble(entryPoint, makeCodeGenerator(allocation))
+	// The entry point comes first.  Its code starts at memoryStart.
+	generator := makeCodeGenerator(allocation)
+	codeBlocks := []*cps.CodeBlockT[instT]{}
+	blockOffsets := []int{}                 // block offsets are relative to their procedure
+	procOffsets := map[*cps.CallNodeT]int{} // in instructions
 	instCount := 0
-	for _, block := range codeBlocks {
-		for _, insts := range block.Instructions {
+	for _, proc := range cps.FindProcs(entryPoint) {
+		procOffsets[proc] = instCount
+		generator.setProc(proc, proc == entryPoint)
+		for _, block := range cps.Assemble(proc, generator) {
+			cps.Push(&codeBlocks, block)
+			cps.Push(&blockOffsets, instCount+block.Offset())
+		}
+		instCount = blockOffsets[len(blockOffsets)-1]
+		last := codeBlocks[len(codeBlocks)-1]
+		for _, insts := range last.Instructions {
 			instCount += len(insts)
 		}
 	}
 	code := make([]byte, instCount*4)
 	lineData := make([]emulator.LineRecord, instCount)
-	i := 0
 	labels := map[uint64]string{}
-	for _, block := range codeBlocks {
-		labels[uint64(block.Offset())*4] = block.String()
+	for i, block := range codeBlocks {
+		labels[uint64(blockOffsets[i])*4] = block.String()
 	}
 
-	for _, block := range codeBlocks {
+	for k, block := range codeBlocks {
 		if *printListing {
 			fmt.Printf("%s:\n", block)
 		}
+		i := blockOffsets[k] * 4
 		for _, insts := range block.Instructions {
 			for _, inst := range insts {
+				if inst.callTo != nil {
+					// Fill in the offset to the called procedure.
+					jal := &riscvInstsT{}
+					jal.jFormat(procOffsets[inst.callTo]*4-i, rReturn, 0x6f)
+					inst.bits = jal.instructions[0]
+				}
 				binary.LittleEndian.PutUint32(code[i:], inst.bits)
 				if inst.pos != 0 {
 					position := frontEnd.FileSet.Position(inst.pos)
@@ -131,11 +149,10 @@ func CompileModule(
 	cpu.Pc = memoryStart
 	cpu.CopyToMemory(memoryStart, code)
 
+	// The inputs are passed in a0-a7.
 	inputs := make([]int, len(entryPoint.Outputs)-1)
-	for i, vart := range entryPoint.Outputs[1:] {
-		if vart.Register != nil {
-			inputs[i] = vart.Register().(*registerT).number
-		}
+	for i := range inputs {
+		inputs[i] = 10 + i
 	}
 	return cpu, inputs, instCount
 }
