@@ -18,11 +18,21 @@ type instT struct {
 }
 
 type codeGeneratorT struct {
-	moves map[*cps.CallNodeT]*cps.RegMovesT
+	moves     map[*cps.CallNodeT]*cps.RegMovesT
+	frameSize int // in bytes
+}
+
+// The frame has the spill slots and one more for use by parallelMove.
+func makeCodeGenerator(allocation *cps.RegAllocationT) *codeGeneratorT {
+	frameSize := 0
+	if 0 < allocation.NumSlots {
+		frameSize = ((allocation.NumSlots+1)*8 + 15) &^ 15 // keep the stack aligned
+	}
+	return &codeGeneratorT{allocation.Moves, frameSize}
 }
 
 func (generator *codeGeneratorT) GenerateCall(call *cps.CallNodeT) ([]instT, int) {
-	insts := &riscvInstsT{}
+	insts := &riscvInstsT{frameSize: generator.frameSize}
 	moves := generator.moves[call]
 	if moves != nil {
 		parallelMove(insts, moves.Before)
@@ -108,7 +118,11 @@ type procLambdaPrimopT struct{ cps.ProcLambdaPrimopT }
 func (primop *procLambdaPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
 	return nil, lambdaOutRegSpecs(call)
 }
-func (primop *procLambdaPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {}
+func (primop *procLambdaPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	if insts.frameSize != 0 {
+		insts.addImm(rStack, rStack, -insts.frameSize)
+	}
+}
 
 type procCallPrimopT struct{ cps.ProcCallPrimopT }
 
@@ -129,7 +143,11 @@ func (primop *returnPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUs
 	}
 	return inputs, nil
 }
-func (primop *returnPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {}
+func (primop *returnPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	if insts.frameSize != 0 {
+		insts.addImm(rStack, rStack, insts.frameSize)
+	}
+}
 
 type jumpLambdaPrimopT struct{ cps.JumpLambdaPrimopT }
 
@@ -302,42 +320,71 @@ const (
 	pending         // value is pending in an earlier recursive call
 )
 
+// Moving from a slot or a constant to a slot uses rTemp.  If there are any of these
+// then loops have to be broken using the extra slot.
+
 func parallelMove(insts *riscvInstsT, moves []cps.RegMoveT) {
 	count := len(moves)
-	fromRegs := make([]cps.RegisterT, count)
-	toRegs := make([]cps.RegisterT, count)
+	froms := make([]cps.RegLocationT, count)
+	tos := make([]cps.RegLocationT, count)
 	locations := make([]int, count)
+	temp := cps.RegLocationT{Register: rTemp}
 	for i, move := range moves {
-		fromRegs[i] = move.From
-		toRegs[i] = move.To
+		froms[i] = move.From
+		tos[i] = move.To
 		locations[i] = inSource
+		if move.From.Register == nil && move.To.Register == nil {
+			temp = cps.RegLocationT{Slot: insts.frameSize/8 - 1}
+		}
 	}
 	// Recursive function that moves the 'i'th value to its target
-	// register.
+	// location.
 	var move func(int)
 	move = func(i int) {
-		if fromRegs[i] == toRegs[i] {
+		if froms[i] == tos[i] {
 			return
 		}
 		locations[i] = pending
 		for j := range count {
-			if fromRegs[j] == toRegs[i] {
+			if froms[j] == tos[i] {
 				if locations[j] == inSource {
 					move(j)
 				} else if locations[j] == pending {
 					// Found a loop, put this in temp.
-					insts.move(fromRegs[j], rTemp)
-					fromRegs[j] = rTemp
+					insts.moveLocation(froms[j], temp)
+					froms[j] = temp
 				}
 			}
 		}
-		insts.move(fromRegs[i], toRegs[i])
+		insts.moveLocation(froms[i], tos[i])
 		locations[i] = inDest
 	}
 	for i := range count {
 		if locations[i] == inSource {
 			move(i)
 		}
+	}
+}
+
+func (insts *riscvInstsT) loadConstant(literal cps.NodeT, to cps.RegisterT) {
+	insts.iFormat(valueAsInt(literal), r0, 0, to, 0x13)
+}
+
+func (insts *riscvInstsT) moveLocation(from cps.RegLocationT, to cps.RegLocationT) {
+	if from.Register != nil && to.Register != nil {
+		insts.move(from.Register, to.Register)
+	} else if from.Constant != nil && to.Register != nil {
+		insts.loadConstant(from.Constant, to.Register)
+	} else if from.Constant != nil {
+		insts.loadConstant(from.Constant, rTemp)
+		insts.store(rTemp, rStack, to.Slot*8)
+	} else if from.Register != nil {
+		insts.store(from.Register, rStack, to.Slot*8)
+	} else if to.Register != nil {
+		insts.load(rStack, from.Slot*8, to.Register)
+	} else {
+		insts.load(rStack, from.Slot*8, rTemp)
+		insts.store(rTemp, rStack, to.Slot*8)
 	}
 }
 
@@ -348,7 +395,11 @@ func (primop *loadRegPrimopT) RegisterUsage(call *cps.CallNodeT) ([]*cps.RegUseS
 }
 
 func (primop *loadRegPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	insts.iFormat(valueAsInt(call.Inputs[0]), r0, 0, call.Outputs[0], 0x13)
+	// If it isn't in a register here then it is loaded where it is needed.
+	register := call.Outputs[0].Register()
+	if register != nil {
+		insts.loadConstant(call.Inputs[0], register)
+	}
 }
 
 type syscallPrimopT struct{}

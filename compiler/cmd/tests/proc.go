@@ -26,7 +26,26 @@ func branch(x int, y int) int {
 	} else {
 		x -= 1
 	}
-	return x
+	print(x)
+	return 0
+}
+
+// Nested loops.  'scale' is used only in the inner loop, 'y' only in the
+// outer one (other than to limit the inner one), and 'offset' in neither.
+func nested(x int, y int) int {
+	scale := x + y
+	offset := x - y
+	sum := 0
+	for i := range x {
+		row := 0
+		for j := range y {
+			row += (i + j) * scale
+		}
+		sum += row - y
+	}
+	print(sum)
+	print(sum + offset)
+	return 0
 }
 
 func add(x int, y int) int {

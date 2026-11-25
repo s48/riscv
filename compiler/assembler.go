@@ -12,6 +12,7 @@ import (
 
 type riscvInstsT struct {
 	instructions []uint32
+	frameSize    int // in bytes, zero if there isn't one
 }
 
 // funct7:7 rs2:5 rs1:5 funct3:3 rd:5 op:7
