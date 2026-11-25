@@ -28,10 +28,7 @@ func makeRegister(class *cps.RegisterClassT, number int) *registerT {
 
 const (
 	numIntRegs = 32
-	// For now only the callee-saved registers, s0-s11, are allocated.
-	// Values that are live across calls are then preserved.
-	intRegsMask = 1<<8 | 1<<9 | 0x3FF<<18
-	numArgRegs  = 8 // a0-a7
+	numArgRegs = 8 // a0-a7
 )
 
 var r0 *registerT      // 0
@@ -47,6 +44,21 @@ var intRegisters = &cps.RegisterClassT{Name: "i"}
 var intRegs = make([]cps.RegisterT, numIntRegs)
 
 func reg(i int) *registerT { return intRegs[i].(*registerT) }
+
+// t1-t6, a0-a7, s0-s11
+var allocatedRegisters = []int{
+	6, 7, 28, 29, 30, 31,
+	10, 11, 12, 13, 14, 15, 16, 17,
+	8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+}
+
+// s0-s11, which are preserved by procedure calls.
+func isCalleeSaved(i int) bool {
+	return i == 8 || i == 9 || (18 <= i && i <= 27)
+}
+
+// Registers whose values are changed by procedure calls: ra, t0-t6, a0-a7.
+var callerSaved = []cps.RegisterT{}
 
 var intIn = &cps.RegUseSpecT{PhaseOffset: cps.EarlyRegUse, Class: intRegisters}
 var intOut = &cps.RegUseSpecT{PhaseOffset: cps.LateRegUse, Class: intRegisters}
@@ -74,7 +86,19 @@ func init() {
 	for i := range intRegs {
 		intRegs[i] = &registerT{intRegisters, i, "i" + strconv.Itoa(i)}
 	}
-	intRegisters.SetRegisters(intRegs, intRegsMask)
+	// The registers that are allocated, in order of preference.  Callee-saved
+	// registers come last as using them requires saving and restoring them.
+	// Zero, ra, sp, gp, tp, and t0 are not allocated.
+	allocated := []cps.RegisterT{}
+	for _, i := range allocatedRegisters {
+		allocated = append(allocated, intRegs[i])
+	}
+	intRegisters.SetRegisters(allocated, 1<<len(allocated)-1)
+	for i := range numIntRegs {
+		if !isCalleeSaved(i) && i != 0 && i != 2 && i != 3 && i != 4 {
+			callerSaved = append(callerSaved, intRegs[i])
+		}
+	}
 	for i, name := range gdbRegNames {
 		reg(i).name = name
 	}

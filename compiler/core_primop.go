@@ -27,8 +27,8 @@ func makeCodeGenerator(allocation *cps.RegAllocationT) *codeGeneratorT {
 	return &codeGeneratorT{allocation: allocation}
 }
 
-// The frame has the spill slots, one more for use by parallelMove, and
-// the callee-saved registers that the procedure uses.
+// The frame has the spill slots, if there are any, one more for use by
+// parallelMove, and the callee-saved registers that the procedure uses.
 type frameT struct {
 	size        int // in bytes, zero if there is no frame
 	scratchSlot int
@@ -41,11 +41,17 @@ func (generator *codeGeneratorT) setProc(proc *cps.CallNodeT, isEntry bool) {
 	allocation := generator.allocation.Frames[proc]
 	frame := &frameT{
 		scratchSlot: allocation.NumSlots,
-		saved:       allocation.Registers,
-		savedSlot:   allocation.NumSlots + 1,
+		savedSlot:   allocation.NumSlots,
 	}
-	if isEntry {
-		frame.saved = nil
+	if 0 < allocation.NumSlots {
+		frame.savedSlot += 1 // the scratch slot is only needed if there are slots
+	}
+	if !isEntry {
+		for _, register := range allocation.Registers {
+			if isCalleeSaved(register.Number()) {
+				frame.saved = append(frame.saved, register)
+			}
+		}
 	}
 	if 0 < allocation.NumSlots || 0 < len(frame.saved) {
 		frame.size = ((frame.savedSlot+len(frame.saved))*8 + 15) &^ 15 // keep the stack aligned
@@ -194,6 +200,10 @@ func (primop *returnPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 		insts.addImm(rStack, rStack, frame.size)
 	}
 	insts.iFormat(0, rReturn, 0, r0, 0x67) // jalr zero, 0(ra)
+}
+
+func (primop *procCallPrimopT) ClobberedRegisters(call *cps.CallNodeT) []cps.RegisterT {
+	return callerSaved
 }
 
 // The arguments have already been moved to a0-a7.  The offset in the 'jal'
@@ -462,28 +472,19 @@ func (primop *syscallPrimopT) Name() string                 { return "syscall" }
 func (primop *syscallPrimopT) SideEffects() bool            { return true }
 func (primop *syscallPrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
 
-// Shoot.  Reg specs are going to need a mask, not just a class.
-// For now just juggle as needed.
+// The value is passed in a0 and the call number in a7.
 func (primop *syscallPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	//	return uses(nil, arg7, arg0), nil
-	return uses(nil, nil, intIn), nil
+	return uses(nil, nil, argSpec(0, cps.EarlyRegUse)), nil
 }
 
+func (primop *syscallPrimopT) ClobberedRegisters(call *cps.CallNodeT) []cps.RegisterT {
+	return []cps.RegisterT{rArg0, rArg7}
+}
+
+// The value has already been moved to a0.
 func (primop *syscallPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	syscall := valueAsInt(call.Inputs[1])
-	arg0 := call.Inputs[2]
-	// Save a7 and a0.
-	insts.addImm(rStack, rStack, -16)
-	insts.store(rArg7, rStack, 0)
-	insts.store(rArg0, rStack, 8)
-	// Load arguments and make the call.
-	insts.iFormat(syscall, r0, 0, rArg7, 0x13)
-	insts.move(arg0, rArg0)
-	insts.iFormat(0, r0, 0, r0, 0x73)
-	// Restore a7 and a0.
-	insts.load(rStack, 0, rArg7)
-	insts.load(rStack, 8, rArg0)
-	insts.addImm(rStack, rStack, 16)
+	insts.iFormat(valueAsInt(call.Inputs[1]), r0, 0, rArg7, 0x13)
+	insts.iFormat(0, r0, 0, r0, 0x73) // ecall
 }
 
 //----------------------------------------------------------------
@@ -557,25 +558,21 @@ type printPrimopT struct{}
 func (primop *printPrimopT) Name() string                 { return "print" }
 func (primop *printPrimopT) SideEffects() bool            { return true }
 func (primop *printPrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
+
+// The value is passed in a0.
 func (primop *printPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	return uses(intIn), nil
+	return uses(argSpec(0, cps.EarlyRegUse)), nil
 }
 
+func (primop *printPrimopT) ClobberedRegisters(call *cps.CallNodeT) []cps.RegisterT {
+	return []cps.RegisterT{rArg0, rArg7}
+}
+
+// The value has already been moved to a0.
 func (primop *printPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	arg0 := call.Inputs[0]
-	// 1 = PrintInteger
-
-	insts.addImm(rStack, rStack, -16)
-	insts.store(rArg7, rStack, 0)
-	insts.store(rArg0, rStack, 8)
-
-	insts.iFormat(1, r0, 0, intRegs[17], 0x13)
-	insts.rFormat(0, arg0, r0, 0, intRegs[10], 0x3B)
-	insts.iFormat(0, r0, 0, r0, 0x73)
-
-	insts.load(rStack, 0, rArg7)
-	insts.load(rStack, 8, rArg0)
-	insts.addImm(rStack, rStack, 16)
+	insts.iFormat(1, r0, 0, rArg7, 0x13)        // 1 = PrintInteger
+	insts.rFormat(0, r0, rArg0, 0, rArg0, 0x3B) // addw a0, a0, zero
+	insts.iFormat(0, r0, 0, r0, 0x73)           // ecall
 }
 
 //----------------------------------------------------------------

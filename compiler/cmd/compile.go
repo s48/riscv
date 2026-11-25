@@ -58,16 +58,16 @@ var tests = []*testT{
 	// count, not just by eyeballing a listing), so a regression that
 	// silently stops folding -- but still prints the right answer --
 	// fails the test anyway.
-	{"addConst", nil, []uint64{5}, 20},
-	{"subConst", nil, []uint64{7}, 20},
-	{"bitXorConst", nil, []uint64{6}, 20},
-	{"bitOrConst", nil, []uint64{14}, 20},
-	{"bitAndConst", nil, []uint64{8}, 20},
-	{"mulConst", nil, []uint64{42}, 20},
-	{"divConst", nil, []uint64{3}, 20},
-	{"shlConst", nil, []uint64{16}, 20},
-	{"shrConst", nil, []uint64{8}, 20},
-	{"remConst", nil, []uint64{2}, 20},
+	{"addConst", nil, []uint64{5}, 7},
+	{"subConst", nil, []uint64{7}, 7},
+	{"bitXorConst", nil, []uint64{6}, 7},
+	{"bitOrConst", nil, []uint64{14}, 7},
+	{"bitAndConst", nil, []uint64{8}, 7},
+	{"mulConst", nil, []uint64{42}, 7},
+	{"divConst", nil, []uint64{3}, 7},
+	{"shlConst", nil, []uint64{16}, 7},
+	{"shrConst", nil, []uint64{8}, 7},
+	{"remConst", nil, []uint64{2}, 7},
 }
 
 var gdbServer = flag.Bool("gdb", false, "Run GDB server.")
