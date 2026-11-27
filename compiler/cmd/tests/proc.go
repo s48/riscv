@@ -251,6 +251,123 @@ func arrayNested(n int) int {
 	return 0
 }
 
+// Arrays are values, so assigning one copies it.  Each check changes
+// the original after the copy, which must not change the copy.
+// n = 1 -> 11, 22, 0, 12, 7, 63
+func arrayCopy(n int) int {
+	var a [3][2]int
+	for i := range 3 {
+		a[i][0] = i*10 + 1
+		a[i][1] = i*10 + 2
+	}
+	a[0] = a[n] // copy in place
+	a[n][0] = 0
+	print(a[0][0])
+	row := a[2] // copy to a new variable
+	a[2][1] = 0
+	print(row[1])
+	b := a[0]
+	b = a[n] // copy in place, to a variable
+	a[n][1] = 3
+	print(b[0])
+	print(b[1])
+	var c [2]int
+	setFirst(c, 5) // the argument is copied
+	c[0] = 7
+	print(c[0])
+	print(arraySum(a[2]))
+	return 0
+}
+
+func setFirst(a [2]int, x int) {
+	a[0] = x
+}
+
+func arraySum(a [2]int) int {
+	return a[0] + a[1] + a[0] + a[0]
+}
+
+// Copies too large for straight-line code use the library routines,
+// with 8-byte pieces for 'a' and single bytes for 'b'.  'c' is
+// copied in 2-byte pieces.
+// n = 5 -> 50, 5, 3, 0, 0, 0
+func arrayCopyBig(n int) int {
+	var a [20]int
+	var b [30]uint8
+	var c [3]int16
+	for i := range 20 {
+		a[i] = i * 10
+	}
+	for i := range 30 {
+		b[i] = uint8(i)
+	}
+	c[2] = 3
+	a2 := a
+	b2 := b
+	c2 := c
+	a[n] = 0
+	b[n] = 0
+	c[2] = 0
+	print(a2[n])
+	print(int(b2[n]))
+	print(int(c2[2]))
+	print(a[n])
+	print(int(b[n]))
+	print(int(c[2]))
+	return 0
+}
+
+// A pointer to an array is the array's data.  Assigning to the array
+// through the pointer copies into it.  The last check assigns through
+// a pointer to an int.
+// n = 1 -> 20, 7, 30, 7, 5
+func arrayPointer(n int) int {
+	var a [3]int
+	var b [3]int
+	p := &a
+	(*p)[n] = 20
+	print(a[n])
+	a[n] = 7
+	print((*p)[n])
+	b[n] = 30
+	*p = b
+	print(a[n])
+	b[n] = 0
+	a = *p
+	print(arraySum3(*p, n) - 23)
+	x := 0
+	q := &x
+	*q = 5
+	print(x)
+	return 0
+}
+
+func arraySum3(a [3]int, n int) int {
+	a[0] = 0
+	return a[n]
+}
+
+// Pointers to an array's elements, both arrays and ints, and to the
+// whole array.
+// n = 1 -> 5, 9, 4, 5, 6
+func arrayAddress(n int) int {
+	var a [3][2]int
+	p := &a[n]
+	(*p)[0] = 5
+	print(a[n][0])
+	q := &a[2][n]
+	*q = 9
+	print(a[2][1])
+	r := &a
+	(*r)[0][1] = 4
+	print(a[0][1])
+	row := *p // a copy
+	a[n][0] = 6
+	print(row[0])
+	print((*p)[0])
+	return 0
+}
+
 // An array too big for an addi immediate, and two arrays, to check
 // that they don't overlap.
 // n = 299 -> 2990, 299, 0

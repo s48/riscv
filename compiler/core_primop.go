@@ -14,19 +14,21 @@ import (
 )
 
 type instT struct {
-	bits   uint32
-	pos    token.Pos
-	callTo *cps.CallNodeT // procedure for a 'jal' that has to be filled in
+	bits    uint32
+	pos     token.Pos
+	callTo  *cps.CallNodeT // procedure for a 'jal' that has to be filled in
+	routine string         // library routine for a 'jal' that has to be filled in
 }
 
 type codeGeneratorT struct {
 	allocation *cps.RegAllocationT
-	frame      *frameT // for the procedure being generated
-	usesHeap   bool    // some call allocates, so the heap prelude is needed
+	frame      *frameT         // for the procedure being generated
+	usesHeap   bool            // some call allocates, so the heap prelude is needed
+	routines   map[string]bool // library routines that are called
 }
 
 func makeCodeGenerator(allocation *cps.RegAllocationT) *codeGeneratorT {
-	return &codeGeneratorT{allocation: allocation}
+	return &codeGeneratorT{allocation: allocation, routines: map[string]bool{}}
 }
 
 // The frame has the spill slots, if there are any, one more for use by
@@ -73,6 +75,10 @@ func (generator *codeGeneratorT) GenerateCall(call *cps.CallNodeT) ([]instT, int
 	result := addSource(insts.instructions, call.Source())
 	if insts.callTo != nil {
 		result[len(result)-1].callTo = insts.callTo
+	}
+	if insts.routine != "" {
+		result[len(result)-1].routine = insts.routine
+		generator.routines[insts.routine] = true
 	}
 	return result, len(result)
 }
@@ -143,6 +149,9 @@ func init() {
 	addPrimop(&addressOfPrimopT{})
 	addPrimop(&arrayIndexPrimopT{})
 	addPrimop(&newPrimopT{})
+	addPrimop(&copyAggregatePrimopT{})
+	addPrimop(&pointerConversionPrimopT{"pointerToAggregate"})
+	addPrimop(&pointerConversionPrimopT{"aggregateToPointer"})
 	addPrimop(&defaultValuePrimopT{})
 	addPrimop(&loadRegPrimopT{})
 	addPrimop(&syscallPrimopT{})
@@ -300,16 +309,10 @@ func (primop *pointerRefPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, r
 // The load is the size of the value, and sign- or zero-extends it.
 // A cell holds a 64-bit word, which is fine, as the low bytes of an
 // extended value are the value.
-//
-// An array value is a pointer to its data, and an array within an
-// array is stored in place, so the inner array's value is its address.
 func (primop *pointerRefPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 	typ := call.Outputs[0].Type.(nativeTypeT)
-	if typ.kind() == arrayType {
-		if regNumber(call.Inputs[0]) != regNumber(call.Outputs[0]) {
-			insts.move(call.Inputs[0], call.Outputs[0])
-		}
-		return
+	if isAggregate(typ) {
+		panicf("pointerRef of an aggregate, %s; the front end should use pointerToAggregate", typ)
 	}
 	insts.loadSized(call.Inputs[0], 0, call.Outputs[0], typ.sizeBytes(), isSignedType(typ))
 }
@@ -326,8 +329,8 @@ func (primop *pointerSetPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, r
 // pointerSet(pointer, value), storing only the value's bytes.
 func (primop *pointerSetPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 	typ := nodeType(call.Inputs[1])
-	if typ.kind() == arrayType {
-		panicf("storing an array value, %s, requires copying it, which is not supported", typ)
+	if isAggregate(typ) {
+		panicf("pointerSet of an aggregate, %s; the front end should use copyAggregate", typ)
 	}
 	size := typ.sizeBytes()
 	insts.storeSized(call.Inputs[1], call.Inputs[0], 0, size)
@@ -760,14 +763,14 @@ func (primop *newPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT
 	return nil, uses(intOut)
 }
 
-// Allocate the object for an array.  The elements are stored in place,
-// including those that are themselves arrays.
+// Allocate an aggregate's data.  Parts that are themselves aggregates
+// are stored in place.
 func (primop *newPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	array, isArray := call.Outputs[0].Type.(*nativeArrayT)
-	if !isArray {
-		panicf("new of non-array type %s", call.Outputs[0].Type)
+	typ := call.Outputs[0].Type.(nativeTypeT)
+	if !isAggregate(typ) {
+		panicf("new of non-aggregate type %s", typ)
 	}
-	insts.allocate(call.Outputs[0], array.sizeBytes())
+	insts.allocate(call.Outputs[0], typ.sizeBytes())
 }
 
 // The native type of a reference or literal.
@@ -782,12 +785,113 @@ func nodeType(node cps.NodeT) nativeTypeT {
 	return nil
 }
 
+// Aggregates (arrays, and later structs) are referred to by pointers
+// to their data.
+func isAggregate(typ nativeTypeT) bool {
+	return typ.kind() == arrayType
+}
+
+func nodeAggregateType(node cps.NodeT) nativeTypeT {
+	typ := nodeType(node)
+	if !isAggregate(typ) {
+		panicf("%v is not an aggregate", node)
+	}
+	return typ
+}
+
 func nodeArrayType(node cps.NodeT) *nativeArrayT {
-	array, isArray := nodeType(node).(*nativeArrayT)
+	array, isArray := nodeAggregateType(node).(*nativeArrayT)
 	if !isArray {
 		panicf("%v is not an array", node)
 	}
 	return array
+}
+
+// The alignment of a value's data.
+func alignment(typ nativeTypeT) int {
+	array, isArray := typ.(*nativeArrayT)
+	if isArray {
+		return alignment(array.contents)
+	}
+	return max(1, typ.sizeBytes())
+}
+
+// An aggregate's value is a pointer to its data, so a pointer to an
+// aggregate has the same bits as the aggregate.  These primops change
+// only the type: pointerToAggregate is '*p', and aggregateToPointer is
+// '&x', when the pointer's contents is an aggregate.  The move can
+// later be removed by having the register allocator give the input and
+// output the same register.
+type pointerConversionPrimopT struct {
+	name string
+}
+
+func (primop *pointerConversionPrimopT) Name() string                 { return primop.name }
+func (primop *pointerConversionPrimopT) SideEffects() bool            { return false }
+func (primop *pointerConversionPrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
+func (primop *pointerConversionPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn), uses(intOut)
+}
+func (primop *pointerConversionPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	if regNumber(call.Inputs[0]) != regNumber(call.Outputs[0]) {
+		insts.move(call.Inputs[0], call.Outputs[0])
+	}
+}
+
+// copyAggregate(dest, src) copies the aggregate 'src' into 'dest'.
+// Small ones are copied by straight-line code, in pieces as large as
+// their alignment allows.  Larger ones are copied by a library
+// routine; see library.go.
+type copyAggregatePrimopT struct{}
+
+// The largest number of pieces copied by straight-line code.
+const maxInlineCopies = 8
+
+func (primop *copyAggregatePrimopT) Name() string                 { return "copyAggregate" }
+func (primop *copyAggregatePrimopT) SideEffects() bool            { return true }
+func (primop *copyAggregatePrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
+
+func copyAggregateSizes(call *cps.CallNodeT) (int, int) {
+	typ := nodeAggregateType(call.Inputs[1])
+	return typ.sizeBytes(), alignment(typ)
+}
+
+func copyAggregateIsInline(call *cps.CallNodeT) bool {
+	size, piece := copyAggregateSizes(call)
+	return size/piece <= maxInlineCopies
+}
+
+func (primop *copyAggregatePrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	if copyAggregateIsInline(call) {
+		return uses(intIn, intIn), nil
+	}
+	return uses(argSpec(0, cps.EarlyRegUse), argSpec(1, cps.EarlyRegUse)), nil
+}
+
+func (primop *copyAggregatePrimopT) ClobberedRegisters(call *cps.CallNodeT) []cps.RegisterT {
+	if copyAggregateIsInline(call) {
+		return nil
+	}
+	return copyRoutineClobbers()
+}
+
+func (primop *copyAggregatePrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	dest := call.Inputs[0]
+	src := call.Inputs[1]
+	size, piece := copyAggregateSizes(call)
+	if copyAggregateIsInline(call) {
+		for offset := 0; offset < size; offset += piece {
+			insts.loadSized(src, offset, rTemp, piece, false)
+			insts.storeSized(rTemp, dest, offset, piece)
+		}
+		return
+	}
+	routine := "copyBytes"
+	if piece == 8 {
+		routine = "copyDoublewords"
+	}
+	insts.loadImmediate(size/piece, reg(12)) // a2 is the count
+	insts.callRoutine(routine)
 }
 
 // defaultValuePrimopT creates the default value for its output.  For
@@ -814,7 +918,7 @@ func (primop *defaultValuePrimopT) ToCps(
 
 	nativeType := convertType(resultVars[0].Type)
 	var call *cps.CallNodeT
-	if nativeType.kind() == arrayType {
+	if isAggregate(nativeType) {
 		call = cps.MakeCall(cps.LookupPrimop("new"), resultVars)
 	} else {
 		value := cps.MakeLiteral(int64(0), nativeType)

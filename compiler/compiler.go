@@ -118,6 +118,21 @@ func CompileModule(
 		instCount += len(prelude)
 	}
 
+	// The library routines that are called go at the end.
+	routines := []libraryRoutineT{}
+	routineCode := [][]uint32{}
+	routineOffsets := map[string]int{} // in instructions
+	for _, routine := range libraryRoutines {
+		if generator.routines[routine.name] {
+			routineOffsets[routine.name] = instCount
+			insts := &riscvInstsT{}
+			routine.generate(insts)
+			cps.Push(&routines, routine)
+			cps.Push(&routineCode, insts.instructions)
+			instCount += len(insts.instructions)
+		}
+	}
+
 	code := make([]byte, instCount*4)
 	lineData := make([]emulator.LineRecord, instCount)
 	labels := map[uint64]string{}
@@ -126,6 +141,9 @@ func CompileModule(
 	}
 	for i, block := range codeBlocks {
 		labels[uint64(blockOffsets[i])*4] = block.String()
+	}
+	for name, offset := range routineOffsets {
+		labels[uint64(offset)*4] = name
 	}
 
 	if 0 < len(prelude) && *printListing {
@@ -151,6 +169,11 @@ func CompileModule(
 					jal.jFormat(procOffsets[inst.callTo]*4-i, rReturn, 0x6f)
 					inst.bits = jal.instructions[0]
 				}
+				if inst.routine != "" {
+					jal := &riscvInstsT{}
+					jal.jFormat(routineOffsets[inst.routine]*4-i, rReturn, 0x6f)
+					inst.bits = jal.instructions[0]
+				}
 				binary.LittleEndian.PutUint32(code[i:], inst.bits)
 				if inst.pos != 0 {
 					position := frontEnd.FileSet.Position(inst.pos)
@@ -164,6 +187,20 @@ func CompileModule(
 				}
 				i += 4
 			}
+		}
+	}
+
+	for k, routine := range routines {
+		if *printListing {
+			fmt.Printf("%s:\n", routine.name)
+		}
+		i := routineOffsets[routine.name] * 4
+		for _, bits := range routineCode[k] {
+			binary.LittleEndian.PutUint32(code[i:], bits)
+			if *printListing {
+				fmt.Printf("  %s\n", emulator.Disassemble(uint64(i), bits, labels))
+			}
+			i += 4
 		}
 	}
 
@@ -207,6 +244,7 @@ func putFuncsInLetrec(
 ) {
 	vars := []*cps.VariableT{}
 	vals := []cps.NodeT{}
+	inlined := false
 	for i, vart := range funcVars {
 		val := funcVals[i]
 		switch len(vart.Refs) {
@@ -214,6 +252,7 @@ func putFuncsInLetrec(
 			cps.Erase(val)
 		case 1:
 			cps.InlineProcedure(vart.Refs[0].Parent(), val)
+			inlined = true
 		default:
 			delete(vart.Flags, "package")
 			vars = append(vars, vart)
@@ -225,6 +264,9 @@ func putFuncsInLetrec(
 		letrec := cps.MakeCall(cps.LookupPrimop("letrec"), vars, vals...)
 		cps.AttachNext(letrec, cps.DetachNext(entryPoint.Next[0]))
 		cps.AttachNext(entryPoint, letrec)
+	}
+	// Inlining leaves a 'let' binding the procedure's variables.
+	if inlined || 0 < len(vars) {
 		front.SimplifyTopLevel(entryPoint)
 	}
 }

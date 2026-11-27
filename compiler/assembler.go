@@ -15,6 +15,7 @@ type riscvInstsT struct {
 	frame        *frameT
 	callTo       *cps.CallNodeT // procedure called by the last instruction
 	usesHeap     bool           // set by makeCell, so the heap prelude is needed
+	routine      string         // library routine called by the last instruction
 }
 
 // funct7:7 rs2:5 rs1:5 funct3:3 rd:5 op:7
