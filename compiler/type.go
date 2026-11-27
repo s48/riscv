@@ -65,6 +65,8 @@ func convertType(rawGoType types.Type) nativeTypeT {
 		return native
 	case *types.Pointer:
 		return &nativePointerT{convertType(goType.Elem())}
+	case *types.Array:
+		return &nativeArrayT{convertType(goType.Elem()), int(goType.Len())}
 	default:
 		panicf("Can't convert Go type: '%s' with type %T", goType, goType)
 	}
@@ -87,11 +89,15 @@ const (
 	int64Type
 	uint64Type
 	pointerType
+	arrayType
 	tupleType // only used for return values
 )
 
 type nativeTypeT interface {
 	kind() nativeTypeKindT
+	// The size of the value's data.  For a value that refers to a
+	// heap object (an array, so far) this is the object's size; the
+	// reference itself is always a pointer.
 	sizeBytes() int
 
 	// Implement the types.Type interface.
@@ -129,6 +135,25 @@ func (pointer *nativePointerT) sizeBytes() int         { return 8 }
 func (pointer *nativePointerT) Underlying() types.Type { return pointer }
 func (pointer *nativePointerT) String() string {
 	return fmt.Sprintf("pointer(%s)", pointer.contents)
+}
+
+type nativeArrayT struct {
+	contents nativeTypeT
+	length   int
+}
+
+func (array *nativeArrayT) kind() nativeTypeKindT { return arrayType }
+
+// An array value is referenced by a pointer to its data in the heap.
+// sizeBytes is the size of the data, as that is what is needed for
+// allocation and for arrays of arrays; the pointer is 8 bytes, like
+// every other value that refers to an object.
+func (array *nativeArrayT) sizeBytes() int {
+	return array.length * array.contents.sizeBytes()
+}
+func (array *nativeArrayT) Underlying() types.Type { return array }
+func (array *nativeArrayT) String() string {
+	return fmt.Sprintf("array(%s, %d)", array.contents, array.length)
 }
 
 type nativeTupleT struct {

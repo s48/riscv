@@ -166,82 +166,6 @@ func neq(x int, y int) int {
 	return 0
 }
 
-func lt(x int, y int) int {
-	r0 := 0
-	if x < y {
-		r0 = 1
-	}
-	r1 := 0
-	if x < x {
-		r1 = 1
-	}
-	r2 := 0
-	if y < x {
-		r2 = 1
-	}
-	print(r0)
-	print(r1)
-	print(r2)
-	return 0
-}
-
-func leq(x int, y int) int {
-	r0 := 0
-	if x <= y {
-		r0 = 1
-	}
-	r1 := 0
-	if x <= x {
-		r1 = 1
-	}
-	r2 := 0
-	if y <= x {
-		r2 = 1
-	}
-	print(r0)
-	print(r1)
-	print(r2)
-	return 0
-}
-
-func gt(x int, y int) int {
-	r0 := 0
-	if x > y {
-		r0 = 1
-	}
-	r1 := 0
-	if x > x {
-		r1 = 1
-	}
-	r2 := 0
-	if y > x {
-		r2 = 1
-	}
-	print(r0)
-	print(r1)
-	print(r2)
-	return 0
-}
-
-func geq(x int, y int) int {
-	r0 := 0
-	if x >= y {
-		r0 = 1
-	}
-	r1 := 0
-	if x >= x {
-		r1 = 1
-	}
-	r2 := 0
-	if y >= x {
-		r2 = 1
-	}
-	print(r0)
-	print(r1)
-	print(r2)
-	return 0
-}
-
 func square(x int) int {
 	return x * x
 }
@@ -265,8 +189,82 @@ func recursive(n int) int {
 	return 0
 }
 
-func divmod(x int, y int) (int, int) {
-	return x / y, x % y
+func array(n int) int {
+	var a [4]int
+	for i := range 4 {
+		a[i] = i*10 + 10
+	}
+	print(a[n])
+	return 0
+}
+
+// Narrow elements are stored in their own size, and sign- or
+// zero-extended when loaded.  Each store would overwrite the next
+// element if they were 64 bits.
+// n = 1 -> -56, 200, -1, 65535, -100000, 4000000000
+func arrayNarrow(n int) int {
+	var a [3]int8
+	var b [3]uint8
+	var c [3]int16
+	var d [3]uint16
+	var e [3]int32
+	var f [3]uint32
+	for i := range 3 {
+		a[i] = int8(n * 200)
+		b[i] = uint8(n * 200)
+		c[i] = int16(-n)
+		d[i] = uint16(-n)
+		e[i] = int32(n * -100000)
+		f[i] = uint32(n * 4000000000)
+	}
+	a[n+1] = 0
+	b[n+1] = 0
+	c[n+1] = 0
+	d[n+1] = 0
+	e[n+1] = 0
+	f[n+1] = 0
+	print(int(a[n]))
+	print(int(b[n]))
+	print(int(c[n]))
+	print(int(d[n]))
+	print(int(e[n]))
+	print(int(f[n]))
+	return 0
+}
+
+// Arrays of arrays, with inner arrays whose sizes are a power of two
+// (4 * 8) and not (3 * 2).
+// n = 2 -> 21, 12, -21, 1
+func arrayNested(n int) int {
+	var a [3][4]int
+	var b [4][3]int16
+	for i := range 3 {
+		for j := range 4 {
+			a[i][j] = i*10 + j
+			b[j][i] = int16(-(i*10 + j))
+		}
+	}
+	print(a[n][n-1])
+	print(a[n-1][n])
+	print(int(b[n-1][n]))
+	print(a[0][1])
+	return 0
+}
+
+// An array too big for an addi immediate, and two arrays, to check
+// that they don't overlap.
+// n = 299 -> 2990, 299, 0
+func arrayBig(n int) int {
+	var a [300]int
+	var b [300]int
+	for i := range 300 {
+		a[i] = i * 10
+		b[i] = i
+	}
+	print(a[n])
+	print(b[n])
+	print(a[0])
+	return 0
 }
 
 func sum8(a int, b int, c int, d int, e int, f int, g int, h int) int {

@@ -8,6 +8,10 @@ func add(x int, y int) int {
 	return 0
 }
 
+func divmod(x int, y int) (int, int) {
+	return x / y, x % y
+}
+
 func add8(x int) int {
 	var z int8 = 100
 	z = z + int8(x)
@@ -19,6 +23,82 @@ func add8u(x uint) uint {
 	var z uint8 = 200
 	z = z + uint8(x)
 	print(uint(z))
+	return 0
+}
+
+func lt(x int, y int) int {
+	r0 := 0
+	if x < y {
+		r0 = 1
+	}
+	r1 := 0
+	if x < x {
+		r1 = 1
+	}
+	r2 := 0
+	if y < x {
+		r2 = 1
+	}
+	print(r0)
+	print(r1)
+	print(r2)
+	return 0
+}
+
+func leq(x int, y int) int {
+	r0 := 0
+	if x <= y {
+		r0 = 1
+	}
+	r1 := 0
+	if x <= x {
+		r1 = 1
+	}
+	r2 := 0
+	if y <= x {
+		r2 = 1
+	}
+	print(r0)
+	print(r1)
+	print(r2)
+	return 0
+}
+
+func gt(x int, y int) int {
+	r0 := 0
+	if x > y {
+		r0 = 1
+	}
+	r1 := 0
+	if x > x {
+		r1 = 1
+	}
+	r2 := 0
+	if y > x {
+		r2 = 1
+	}
+	print(r0)
+	print(r1)
+	print(r2)
+	return 0
+}
+
+func geq(x int, y int) int {
+	r0 := 0
+	if x >= y {
+		r0 = 1
+	}
+	r1 := 0
+	if x >= x {
+		r1 = 1
+	}
+	r2 := 0
+	if y >= x {
+		r2 = 1
+	}
+	print(r0)
+	print(r1)
+	print(r2)
 	return 0
 }
 

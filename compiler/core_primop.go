@@ -139,7 +139,11 @@ func init() {
 	addPrimop(&cellRefPrimopT{})
 	addPrimop(&cellSetPrimopT{})
 	addPrimop(&pointerRefPrimopT{})
+	addPrimop(&pointerSetPrimopT{})
 	addPrimop(&addressOfPrimopT{})
+	addPrimop(&arrayIndexPrimopT{})
+	addPrimop(&newPrimopT{})
+	addPrimop(&defaultValuePrimopT{})
 	addPrimop(&loadRegPrimopT{})
 	addPrimop(&syscallPrimopT{})
 }
@@ -251,18 +255,34 @@ func (primop *makeCellPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, reg
 	return nil, uses(intOut)
 }
 
-// Bump-allocate one cell.  The output register holds the limit until
-// the result is written to it.  There is no GC yet, so running out of
-// heap traps with an ebreak.
 func (primop *makeCellPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	out := call.Outputs[0]
+	insts.allocate(call.Outputs[0], cellSize)
+}
+
+// Bump-allocate 'size' bytes, rounded up to a multiple of 8, leaving
+// the address in 'out'.  'out' holds the size and then the limit until
+// the result is written to it.  There is no GC yet, so running out of
+// heap traps with an ebreak.  The heap is never reused, so the new
+// object is all zeros, as the emulator's memory starts out zeroed.
+func (insts *riscvInstsT) allocate(out any, size int) {
+	size = (size + 7) &^ 7
 	insts.load(rThread, threadHeapPointer, rTemp)
+	if signedLen(size) <= 12 {
+		insts.addImm(rTemp, rTemp, size)
+	} else {
+		insts.loadImmediate(size, out)
+		insts.rFormat(0, out, rTemp, 0, rTemp, 0x33) // add
+	}
 	insts.load(rThread, threadHeapLimit, out)
-	insts.addImm(rTemp, rTemp, cellSize)
 	insts.branch(7, out, rTemp, 8)    // bgeu: skip the ebreak if limit >= new pointer
 	insts.iFormat(1, r0, 0, r0, 0x73) // ebreak
 	insts.store(rTemp, rThread, threadHeapPointer)
-	insts.addImm(rTemp, out, -cellSize)
+	if signedLen(-size) <= 12 {
+		insts.addImm(rTemp, out, -size)
+	} else {
+		insts.loadImmediate(size, out)
+		insts.rFormat(0x20, out, rTemp, 0, out, 0x33) // sub
+	}
 	insts.usesHeap = true
 }
 
@@ -276,13 +296,41 @@ func (primop *cellRefPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) 
 func (primop *pointerRefPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
 	return uses(intIn), uses(intOut)
 }
+
+// The load is the size of the value, and sign- or zero-extends it.
+// A cell holds a 64-bit word, which is fine, as the low bytes of an
+// extended value are the value.
+//
+// An array value is a pointer to its data, and an array within an
+// array is stored in place, so the inner array's value is its address.
 func (primop *pointerRefPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	generateDeref(insts, call)
+	typ := call.Outputs[0].Type.(nativeTypeT)
+	if typ.kind() == arrayType {
+		if regNumber(call.Inputs[0]) != regNumber(call.Outputs[0]) {
+			insts.move(call.Inputs[0], call.Outputs[0])
+		}
+		return
+	}
+	insts.loadSized(call.Inputs[0], 0, call.Outputs[0], typ.sizeBytes(), isSignedType(typ))
 }
 
 // Load the value the first input points to.
 func generateDeref(insts *riscvInstsT, call *cps.CallNodeT) {
 	insts.load(call.Inputs[0], 0, call.Outputs[0])
+}
+
+func (primop *pointerSetPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn, intIn), nil
+}
+
+// pointerSet(pointer, value), storing only the value's bytes.
+func (primop *pointerSetPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	typ := nodeType(call.Inputs[1])
+	if typ.kind() == arrayType {
+		panicf("storing an array value, %s, requires copying it, which is not supported", typ)
+	}
+	size := typ.sizeBytes()
+	insts.storeSized(call.Inputs[1], call.Inputs[0], 0, size)
 }
 
 // cellSet(cell, value)
@@ -664,6 +712,115 @@ func (primop *addressOfPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, re
 	return nil, nil
 }
 func (primop *addressOfPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+}
+
+type arrayIndexPrimopT struct{}
+
+func (primop *arrayIndexPrimopT) Name() string                 { return "arrayIndex" }
+func (primop *arrayIndexPrimopT) SideEffects() bool            { return false }
+func (primop *arrayIndexPrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
+func (primop *arrayIndexPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn, intIn), uses(intOut)
+}
+
+// arrayIndex(array, index) returns the address of array[index].  An
+// index out of range (including a negative one, which is a large
+// unsigned value) traps with an ebreak.  The output may be in the same
+// register as either input, so it is written only by the last
+// instruction.
+func (primop *arrayIndexPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	array := nodeArrayType(call.Inputs[0])
+	index := call.Inputs[1]
+	out := call.Outputs[0]
+	insts.loadImmediate(array.length, rTemp)
+	insts.branch(6, index, rTemp, 8)  // bltu: skip the ebreak if index < length
+	insts.iFormat(1, r0, 0, r0, 0x73) // ebreak
+	elementSize := array.contents.sizeBytes()
+	if elementSize == 1 {
+		insts.rFormat(0, index, call.Inputs[0], 0, out, 0x33) // add
+		return
+	}
+	if bits.OnesCount(uint(elementSize)) == 1 {
+		shift := bits.TrailingZeros(uint(elementSize))
+		insts.iFormat(shift, index, 1, rTemp, 0x13) // slli
+	} else {
+		// An element that is itself an array may be any size.
+		insts.loadImmediate(elementSize, rTemp)
+		insts.rFormat(0x01, rTemp, index, 0, rTemp, 0x33) // mul
+	}
+	insts.rFormat(0, rTemp, call.Inputs[0], 0, out, 0x33) // add
+}
+
+type newPrimopT struct{}
+
+func (primop *newPrimopT) Name() string                 { return "new" }
+func (primop *newPrimopT) SideEffects() bool            { return false }
+func (primop *newPrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
+func (primop *newPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return nil, uses(intOut)
+}
+
+// Allocate the object for an array.  The elements are stored in place,
+// including those that are themselves arrays.
+func (primop *newPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	array, isArray := call.Outputs[0].Type.(*nativeArrayT)
+	if !isArray {
+		panicf("new of non-array type %s", call.Outputs[0].Type)
+	}
+	insts.allocate(call.Outputs[0], array.sizeBytes())
+}
+
+// The native type of a reference or literal.
+func nodeType(node cps.NodeT) nativeTypeT {
+	switch node := node.(type) {
+	case *cps.ReferenceNodeT:
+		return node.Variable.Type.(nativeTypeT)
+	case *cps.LiteralNodeT:
+		return node.Type.(nativeTypeT)
+	}
+	panicf("node %v has no type", node)
+	return nil
+}
+
+func nodeArrayType(node cps.NodeT) *nativeArrayT {
+	array, isArray := nodeType(node).(*nativeArrayT)
+	if !isArray {
+		panicf("%v is not an array", node)
+	}
+	return array
+}
+
+// defaultValuePrimopT creates the default value for its output.  For
+// non-heap types this is a literal (bound to a variable via 'let'),
+// for heap types it is a call to 'new'.
+//
+// This is a macro primop, in that its ToCps method does not add a
+// call to itself.
+
+type defaultValuePrimopT struct{}
+
+func (primop *defaultValuePrimopT) Name() string                 { return "defaultValue" }
+func (primop *defaultValuePrimopT) SideEffects() bool            { return false }
+func (primop *defaultValuePrimopT) Simplify(call *cps.CallNodeT) {}
+func (primop *defaultValuePrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return nil, nil
+}
+func (primop *defaultValuePrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {}
+
+func (primop *defaultValuePrimopT) ToCps(
+	args []cps.NodeT,
+	resultVars []*cps.VariableT,
+	calls *cps.CallsT) {
+
+	nativeType := convertType(resultVars[0].Type)
+	var call *cps.CallNodeT
+	if nativeType.kind() == arrayType {
+		call = cps.MakeCall(cps.LookupPrimop("new"), resultVars)
+	} else {
+		value := cps.MakeLiteral(int64(0), nativeType)
+		call = cps.MakeCall(cps.LookupPrimop("let"), resultVars, value)
+	}
+	calls.AppendCall(call)
 }
 
 //----------------------------------------------------------------

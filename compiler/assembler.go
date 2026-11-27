@@ -137,6 +137,22 @@ func (insts *riscvInstsT) load(address any, offset int, dest any) {
 	insts.iFormat(offset, address, 3, dest, 0x03)
 }
 
+// Load 'numBytes' (1, 2, 4, or 8) from 'offset(address)', sign- or
+// zero-extending them.
+func (insts *riscvInstsT) loadSized(address any, offset int, dest any, numBytes int, signed bool) {
+	funct3 := uint32(bits.TrailingZeros(uint(numBytes))) // lb lh lw ld
+	if !signed && numBytes < 8 {
+		funct3 |= 4 // lbu lhu lwu
+	}
+	insts.iFormat(offset, address, funct3, dest, 0x03)
+}
+
+// Store the low 'numBytes' (1, 2, 4, or 8) of 'source' at 'offset(address)'.
+func (insts *riscvInstsT) storeSized(source any, address any, offset int, numBytes int) {
+	funct3 := uint32(bits.TrailingZeros(uint(numBytes))) // sb sh sw sd
+	insts.sFormat(offset, source, address, funct3, 0x23)
+}
+
 // Branch to 'offset' bytes from this instruction if 'rs1 <funct3> rs2'.
 // funct3 is 0 beq, 1 bne, 4 blt, 5 bge, 6 bltu, 7 bgeu.
 func (insts *riscvInstsT) branch(funct3 uint32, rs1 any, rs2 any, offset int) {
