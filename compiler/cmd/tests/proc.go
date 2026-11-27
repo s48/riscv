@@ -417,3 +417,16 @@ func pressure(x int, y int) int {
 	print(a*b - c*d + e*f - g*h + i*j - k*l + m*n)
 	return 0
 }
+
+func cells(x int, y int) int {
+	var z *int
+	if x < y {
+		z = &x
+	} else {
+		z = &y
+	}
+	x += 10
+	y += 20
+	print(*z)
+	return 0
+}

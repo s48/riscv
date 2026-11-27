@@ -35,6 +35,7 @@ var r0 *registerT      // 0
 var rReturn *registerT // 1, the return address
 var rStack *registerT  // 2
 var rGlobal *registerT // 3
+var rThread *registerT // 4
 var rTemp *registerT   // 5, t0, for use within a call's code
 // These are special for system calls.
 var rArg0 *registerT
@@ -109,6 +110,7 @@ func init() {
 	contOut = &cps.RegUseSpecT{PhaseOffset: cps.LateRegUse, Class: intRegisters, Fixed: rReturn}
 	rStack = reg(2)
 	rGlobal = reg(3)
+	rThread = reg(4)
 	rArg0 = reg(10)
 	rArg7 = reg(17)
 }

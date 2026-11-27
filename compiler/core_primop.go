@@ -21,6 +21,7 @@ type instT struct {
 type codeGeneratorT struct {
 	allocation *cps.RegAllocationT
 	frame      *frameT // for the procedure being generated
+	usesHeap   bool    // some call allocates, so the heap prelude is needed
 }
 
 func makeCodeGenerator(allocation *cps.RegAllocationT) *codeGeneratorT {
@@ -67,6 +68,7 @@ func (generator *codeGeneratorT) GenerateCall(call *cps.CallNodeT) ([]instT, int
 		parallelMove(insts, moves.At)
 	}
 	call.Primop.(riscvPrimopT).generate(insts, call)
+	generator.usesHeap = generator.usesHeap || insts.usesHeap
 	result := addSource(insts.instructions, call.Source())
 	if insts.callTo != nil {
 		result[len(result)-1].callTo = insts.callTo
@@ -136,6 +138,7 @@ func init() {
 	addPrimop(&cellRefPrimopT{})
 	addPrimop(&cellSetPrimopT{})
 	addPrimop(&pointerRefPrimopT{})
+	addPrimop(&addressOfPrimopT{})
 	addPrimop(&loadRegPrimopT{})
 	addPrimop(&syscallPrimopT{})
 }
@@ -233,6 +236,61 @@ type cellSetPrimopT struct{ cps.CellSetPrimopT }
 
 type pointerRefPrimopT struct{ cps.PointerRefPrimopT }
 type pointerSetPrimopT struct{ cps.PointerSetPrimopT }
+
+// A cell is a single 64-bit word allocated in the heap.  The thread
+// object, pointed to by rThread, holds the heap pointer at offset 0 and
+// the heap limit at offset 8.  See heapPrelude in compiler.go.
+const (
+	threadHeapPointer = 0
+	threadHeapLimit   = 8
+	cellSize          = 8
+)
+
+func (primop *makeCellPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return nil, uses(intOut)
+}
+
+// Bump-allocate one cell.  The output register holds the limit until
+// the result is written to it.  There is no GC yet, so running out of
+// heap traps with an ebreak.
+func (primop *makeCellPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	out := call.Outputs[0]
+	insts.load(rThread, threadHeapPointer, rTemp)
+	insts.load(rThread, threadHeapLimit, out)
+	insts.addImm(rTemp, rTemp, cellSize)
+	insts.branch(7, out, rTemp, 8)    // bgeu: skip the ebreak if limit >= new pointer
+	insts.iFormat(1, r0, 0, r0, 0x73) // ebreak
+	insts.store(rTemp, rThread, threadHeapPointer)
+	insts.addImm(rTemp, out, -cellSize)
+	insts.usesHeap = true
+}
+
+func (primop *cellRefPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn), uses(intOut)
+}
+func (primop *cellRefPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	generateDeref(insts, call)
+}
+
+func (primop *pointerRefPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn), uses(intOut)
+}
+func (primop *pointerRefPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	generateDeref(insts, call)
+}
+
+// Load the value the first input points to.
+func generateDeref(insts *riscvInstsT, call *cps.CallNodeT) {
+	insts.load(call.Inputs[0], 0, call.Outputs[0])
+}
+
+// cellSet(cell, value)
+func (primop *cellSetPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn, intIn), nil
+}
+func (primop *cellSetPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	insts.store(call.Inputs[1], call.Inputs[0], 0)
+}
 
 type compPrimopT struct{ cps.CompPrimopT }
 
@@ -545,6 +603,17 @@ func simplifyNot(call *cps.CallNodeT) {
 	if len(call.Outputs[0].Refs) == 0 {
 		cps.RemoveCall(call)
 	}
+}
+
+type addressOfPrimopT struct{}
+
+func (primop *addressOfPrimopT) Name() string      { return "addressOf" }
+func (primop *addressOfPrimopT) SideEffects() bool { return false }
+func (primop *addressOfPrimopT) Simplify(call *cps.CallNodeT)  { cps.DefaultSimplify(call) }
+func (primop *addressOfPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return nil, nil
+}
+func (primop *addressOfPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 }
 
 //----------------------------------------------------------------

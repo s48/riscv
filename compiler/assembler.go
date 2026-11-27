@@ -14,6 +14,7 @@ type riscvInstsT struct {
 	instructions []uint32
 	frame        *frameT
 	callTo       *cps.CallNodeT // procedure called by the last instruction
+	usesHeap     bool           // set by makeCell, so the heap prelude is needed
 }
 
 // funct7:7 rs2:5 rs1:5 funct3:3 rd:5 op:7
@@ -134,6 +135,22 @@ func (insts *riscvInstsT) store(source any, address any, offset int) {
 func (insts *riscvInstsT) load(address any, offset int, dest any) {
 	// 3 = 64-bit double word (2 would be a sign-extended 32-bit word)
 	insts.iFormat(offset, address, 3, dest, 0x03)
+}
+
+// Branch to 'offset' bytes from this instruction if 'rs1 <funct3> rs2'.
+// funct3 is 0 beq, 1 bne, 4 blt, 5 bge, 6 bltu, 7 bgeu.
+func (insts *riscvInstsT) branch(funct3 uint32, rs1 any, rs2 any, offset int) {
+	insts.bFormat(offset, rs2, rs1, funct3, 0x63)
+}
+
+// rd = imm20 << 12, sign-extended from 32 bits
+func (insts *riscvInstsT) lui(imm20 uint32, rd any) {
+	insts.uFormat(imm20, regNumber(rd), 0x37)
+}
+
+// rd = pc + (imm20 << 12), sign-extended from 32 bits
+func (insts *riscvInstsT) auipc(imm20 uint32, rd any) {
+	insts.uFormat(imm20, regNumber(rd), 0x17)
 }
 
 //----------------------------------------------------------------

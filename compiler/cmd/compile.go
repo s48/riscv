@@ -27,6 +27,7 @@ var tests = []*testT{
 	{"recursive", []uint64{5}, []uint64{120, 720}, 0},
 	{"manyCalls", []uint64{7, 3}, []uint64{2, 1, 73, 204, 642, 720}, 0},
 	{"pressure", []uint64{5, 4}, []uint64{199, 204}, 0},
+	{"cells", []uint64{5, 4}, []uint64{24}, 0},
 	{"add", []uint64{3, 4}, []uint64{7}, 0},
 	{"sub", []uint64{10, 3}, []uint64{7}, 0},
 	{"bitXor", []uint64{12, 10}, []uint64{6}, 0},

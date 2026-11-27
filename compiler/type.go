@@ -4,6 +4,7 @@
 package compiler
 
 import (
+	"fmt"
 	"go/types"
 
 	"github.com/s48/transform/cps"
@@ -56,6 +57,8 @@ func convertType(rawGoType types.Type) nativeTypeT {
 			native.contents[i] = convertType(goType.At(i).Type())
 		}
 		return native
+	case *types.Pointer:
+		return &nativePointerT{convertType(goType.Elem())}
 	default:
 		panicf("Can't convert Go type: '%s' with type %T", goType, goType)
 	}
@@ -71,6 +74,7 @@ const (
 	boolType = iota
 	int64Type
 	uint64Type
+	pointerType
 	tupleType // only used for return values
 )
 
@@ -97,6 +101,17 @@ func (atomic *atomicTypeT) String() string         { return atomic.name }
 var theBoolType = &atomicTypeT{boolType, "bool"}
 var theInt64Type = &atomicTypeT{int64Type, "int64"}
 var theUint64Type = &atomicTypeT{uint64Type, "uint64"}
+
+type nativePointerT struct {
+	contents nativeTypeT
+}
+
+func (pointer *nativePointerT) kind() nativeTypeKindT  { return pointerType }
+func (pointer *nativePointerT) sizeBytes() int         { return 8 }
+func (pointer *nativePointerT) Underlying() types.Type { return pointer }
+func (pointer *nativePointerT) String() string         {
+	return fmt.Sprintf("pointer(%s)", pointer.contents)
+}
 
 type nativeTupleT struct {
 	contents []nativeTypeT

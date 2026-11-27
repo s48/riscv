@@ -104,11 +104,38 @@ func CompileModule(
 			instCount += len(insts)
 		}
 	}
+
+	// The heap prelude, if needed, goes first, so everything else moves up.
+	prelude := []uint32{}
+	if generator.usesHeap {
+		prelude = heapPrelude()
+		for i := range blockOffsets {
+			blockOffsets[i] += len(prelude)
+		}
+		for proc := range procOffsets {
+			procOffsets[proc] += len(prelude)
+		}
+		instCount += len(prelude)
+	}
+
 	code := make([]byte, instCount*4)
 	lineData := make([]emulator.LineRecord, instCount)
 	labels := map[uint64]string{}
+	if 0 < len(prelude) {
+		labels[0] = "prelude"
+	}
 	for i, block := range codeBlocks {
 		labels[uint64(blockOffsets[i])*4] = block.String()
+	}
+
+	if 0 < len(prelude) && *printListing {
+		fmt.Printf("prelude:\n")
+	}
+	for i, bits := range prelude {
+		binary.LittleEndian.PutUint32(code[i*4:], bits)
+		if *printListing {
+			fmt.Printf("  %s\n", emulator.Disassemble(uint64(i*4), bits, labels))
+		}
 	}
 
 	for k, block := range codeBlocks {
@@ -155,6 +182,22 @@ func CompileModule(
 		inputs[i] = 10 + i
 	}
 	return cpu, inputs, instCount
+}
+
+// Initializes the thread object, at MemoryStart+0x50000, and the heap,
+// which is the rest of that 64KB block.  This uses only rThread and
+// rTemp, so the entry point's arguments in a0-a7 are untouched.  The
+// prelude is at the start of the code, so auipc gives MemoryStart plus
+// the offset.  (lui would sign-extend 0x80050000.)
+func heapPrelude() []uint32 {
+	insts := &riscvInstsT{}
+	insts.auipc(0x50, rThread)
+	insts.addImm(rThread, rTemp, 16) // heap starts after the thread object
+	insts.store(rTemp, rThread, threadHeapPointer)
+	insts.lui(0x10, rTemp)                           // 64KB
+	insts.rFormat(0, rThread, rTemp, 0, rTemp, 0x33) // add
+	insts.store(rTemp, rThread, threadHeapLimit)
+	return insts.instructions
 }
 
 func putFuncsInLetrec(

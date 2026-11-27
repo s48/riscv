@@ -65,6 +65,7 @@ func NewCpu() *CpuT {
 	cpu.memory = make([]*[65536]byte, 64)
 	cpu.memory[0] = new([65536]byte)
 	cpu.memory[2] = new([65536]byte) // stack
+	cpu.memory[5] = new([65536]byte) // thread object and heap
 	cpu.csrValues = map[*csrT]uint64{}
 	cpu.breakpoints = map[uint64]struct{}{}
 
