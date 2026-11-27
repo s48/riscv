@@ -55,6 +55,54 @@ func (primop *binopPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
 		primop.op)
 }
 
+func init() {
+	addPrimop(&monopPrimopT{"negate", token.SUB})
+	addPrimop(&monopPrimopT{"bitwiseNot", token.XOR})
+}
+
+type monopPrimopT struct {
+	name  string
+	token token.Token
+}
+
+func (primop *monopPrimopT) Name() string      { return primop.name }
+func (primop *monopPrimopT) SideEffects() bool { return false }
+func (primop *monopPrimopT) Simplify(call *cps.CallNodeT) {
+	x := call.Inputs[0]
+	if !cps.IsLiteralNode(x) {
+		cps.DefaultSimplify(call)
+		return
+	}
+	xLit := x.(*cps.LiteralNodeT)
+	// For XOR, a nonzero precision gives the unsigned complement
+	// (x ^ (1<<prec - 1)), so signed types use 0, which gives -x-1.
+	typ := xLit.Type.(nativeTypeT)
+	prec := uint(0)
+	if !isSignedType(typ) {
+		prec = uint(typ.sizeBytes() * 8)
+	}
+	xLit.Value = constant.UnaryOp(primop.token, xLit.Constant(), prec)
+	call.Primop = cps.LookupPrimop("let")
+	cps.MarkChanged(call)
+}
+
+func (primop *monopPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
+	return uses(intIn), uses(intOut)
+}
+
+func (primop *monopPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
+	switch primop.token {
+	case token.SUB:
+		// sub out, zero, x
+		insts.rFormat(0x20, call.Inputs[0], r0, 0, call.Outputs[0], 0x33)
+	case token.XOR:
+		// xori out, x, -1
+		insts.iFormat(-1, call.Inputs[0], 4, call.Outputs[0], 0x13)
+	default:
+		panicf("unknown unary operator %s", primop.token)
+	}
+}
+
 //----------------------------------------------------------------
 
 func init() {

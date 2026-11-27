@@ -41,7 +41,7 @@ var tests = []*testT{
 
 	// arith.go
 	{"add", []uint64{3, 4}, []uint64{7}, 0},
-	{"add8", []uint64{100}, []uint64{uint64(-56&0xFFFFFFFFFFFFFFFF)}, 0},
+	{"add8", []uint64{100}, []uint64{uint64(-56 & 0xFFFFFFFFFFFFFFFF)}, 0},
 	{"add8u", []uint64{200}, []uint64{144}, 0},
 	{"sub", []uint64{10, 3}, []uint64{7}, 0},
 	{"bitXor", []uint64{12, 10}, []uint64{6}, 0},
@@ -52,6 +52,10 @@ var tests = []*testT{
 	{"rem", []uint64{17, 5}, []uint64{2}, 0},
 	{"shl", []uint64{3, 4}, []uint64{48}, 0},
 	{"shr", []uint64{100, 2}, []uint64{25}, 0},
+	{"negate", []uint64{3}, []uint64{uint64(-3 & 0xFFFFFFFFFFFFFFFF)}, 0},
+	{"bitNot", []uint64{12}, []uint64{uint64(-13 & 0xFFFFFFFFFFFFFFFF)}, 0},
+	{"unaryNarrow", []uint64{5}, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF), 251, uint64(-6 & 0xFFFFFFFFFFFFFFFF), 250}, 0},
+	{"unaryNarrowConst", nil, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF), 251, uint64(-6 & 0xFFFFFFFFFFFFFFFF), 250}, 0},
 	{"convInt8", []uint64{200}, []uint64{18446744073709551560, 16777215, 200, 18446744073709551560, 65480, 18446744073709551560, 16777215, 18446744073709551560, 16777215}, 0},
 	{"convUint8", []uint64{200}, []uint64{144, 18446744073709551504, 144, 144, 144, 144, 144, 144}, 0},
 	{"convInt16", []uint64{40000}, []uint64{18446744073709526080, 16777215, 64, 64, 40000, 18446744073709526080, 16777116, 18446744073709526080, 16777215}, 0},
@@ -81,18 +85,26 @@ var tests = []*testT{
 	{"shlConst", nil, []uint64{16}, 7},
 	{"shrConst", nil, []uint64{8}, 7},
 	{"remConst", nil, []uint64{2}, 7},
+	{"negateConst", nil, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF)}, 7},
+	{"bitNotConst", nil, []uint64{uint64(-13 & 0xFFFFFFFFFFFFFFFF)}, 7},
 
-	// regression.go: known problems, enabled once they are fixed.
-	//{"negVar", []uint64{3}, []uint64{7}, 0},
-	//{"negConst", []uint64{100}, []uint64{44}, 0},
-	//{"bigLiteral", []uint64{1}, []uint64{30001, 19088743}, 0},
-	//{"printBig", []uint64{3000000000}, []uint64{3000000000}, 0},
-	//{"printNarrow", []uint64{200}, []uint64{uint64(-56 & 0xFFFFFFFFFFFFFFFF)}, 0},
-	//{"narrowEq", []uint64{200}, []uint64{1, 0}, 0},
-	//{"narrowLt", []uint64{200}, []uint64{1, 1}, 0},
-	//{"narrowDiv", []uint64{200}, []uint64{72, 4}, 0},
-	//{"narrowShr", []uint64{200}, []uint64{72}, 0},
-	//{"convConst", nil, []uint64{44}, 7},
+	// regression.go: bugs that have been fixed.
+	{"negVar", []uint64{3}, []uint64{7}, 0},
+	{"negConst", []uint64{100}, []uint64{44}, 0},
+}
+
+// Tests for the known bugs in bug.go.  These are run only when asked
+// for by name with -test.  When a bug is fixed, its test moves to
+// regression.go and its entry to the table above.
+var bugTests = []*testT{
+	{"bigLiteral", []uint64{1}, []uint64{30001, 19088743}, 0},
+	{"printBig", []uint64{3000000000}, []uint64{3000000000}, 0},
+	{"printNarrow", []uint64{200}, []uint64{uint64(-56 & 0xFFFFFFFFFFFFFFFF)}, 0},
+	{"narrowEq", []uint64{200}, []uint64{1, 0}, 0},
+	{"narrowLt", []uint64{200}, []uint64{1, 1}, 0},
+	{"narrowDiv", []uint64{200}, []uint64{72, 4}, 0},
+	{"narrowShr", []uint64{200}, []uint64{72}, 0},
+	{"convConst", nil, []uint64{44}, 7},
 }
 
 var gdbServer = flag.Bool("gdb", false, "Run GDB server.")
@@ -103,7 +115,7 @@ func main() {
 	flag.Parse()
 	if *testCase != "" {
 		var theTest *testT
-		for _, test := range tests {
+		for _, test := range slices.Concat(tests, bugTests) {
 			if test.name == *testCase {
 				theTest = test
 				break

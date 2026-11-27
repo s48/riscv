@@ -102,6 +102,54 @@ func remConst() int {
 	return 0
 }
 
+func negate(x int) int {
+	print(-x)
+	return 0
+}
+
+// The front end has already folded constant expressions like '-5', so
+// these use a variable that is bound to a constant.
+func negateConst() int {
+	x := 5
+	print(-x)
+	return 0
+}
+
+func bitNot(x int) int {
+	print(^x)
+	return 0
+}
+
+func bitNotConst() int {
+	x := 12
+	print(^x)
+	return 0
+}
+
+// x = 5 -> -5, 251, -6, 250
+func unaryNarrow(x int) int {
+	a := int8(x)
+	b := uint8(x)
+	print(int(-a))
+	print(uint(-b))
+	print(int(^a))
+	print(uint(^b))
+	return 0
+}
+
+// convertInt does not fold yet (see convConst in regression.go), so
+// these are not minimal.
+// -> -5, 251, -6, 250
+func unaryNarrowConst() int {
+	var a int8 = 5
+	var b uint8 = 5
+	print(int(-a))
+	print(uint(-b))
+	print(int(^a))
+	print(uint(^b))
+	return 0
+}
+
 func shl(x int, y int) int {
 	print(x << y)
 	return 0
