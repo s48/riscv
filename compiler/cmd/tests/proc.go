@@ -414,6 +414,34 @@ func arrayRange(n int) int {
 	return 0
 }
 
+// A pointer to an array can be indexed and given to len and cap, as
+// if it were the array.  len(arrayOf(n)) is not a constant, as it
+// contains a call, which is made and prints 2.
+// n = 1 -> 7, 7, 3, 3, 4, 5, 2, 2, 9
+func arrayPointerIndex(n int) int {
+	var a [3]int
+	var b [4][5]int
+	p := &a
+	p[n] = 7
+	print(a[n])
+	print(p[n])
+	print(len(p))
+	print(cap(p))
+	q := &b
+	print(len(q))
+	print(len(q[n]))
+	q[n][2] = 2
+	print(b[n][2])
+	print(len(arrayOf(n)) + 4)
+	return 0
+}
+
+func arrayOf(n int) *[5]int {
+	var a [5]int
+	print(n * 2)
+	return &a
+}
+
 // An array too big for an addi immediate, and two arrays, to check
 // that they don't overlap.
 // n = 299 -> 2990, 299, 0
