@@ -459,9 +459,11 @@ func (cpu *CpuT) executeArithmeticImm(inst uint32) {
 	case 0x4: // XORI
 		result = rs1 ^ uint64(signedImm)
 	case 0x5:
-		if funct7 == 0x00 {
+		// RV64 has a 6-bit shift amount, so this is funct6, not funct7.
+		funct6 := funct7 >> 1
+		if funct6 == 0x00 { // SRLI
 			result = rs1 >> uimm
-		} else if funct7 == 0x20 {
+		} else if funct6 == 0x10 { // SRAI
 			result = uint64(signedRs1 >> uimm)
 		} else {
 			panic("oops")

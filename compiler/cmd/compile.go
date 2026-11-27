@@ -20,6 +20,7 @@ type testT struct {
 }
 
 var tests = []*testT{
+	// proc.go
 	{"fib", []uint64{19}, []uint64{6765}, 0},
 	{"branch", []uint64{1, 5}, []uint64{3}, 0},
 	{"nested", []uint64{5, 4}, []uint64{610, 611}, 0},
@@ -28,16 +29,6 @@ var tests = []*testT{
 	{"manyCalls", []uint64{7, 3}, []uint64{2, 1, 73, 204, 642, 720}, 0},
 	{"pressure", []uint64{5, 4}, []uint64{199, 204}, 0},
 	{"cells", []uint64{5, 4}, []uint64{24}, 0},
-	{"add", []uint64{3, 4}, []uint64{7}, 0},
-	{"sub", []uint64{10, 3}, []uint64{7}, 0},
-	{"bitXor", []uint64{12, 10}, []uint64{6}, 0},
-	{"bitOr", []uint64{12, 10}, []uint64{14}, 0},
-	{"bitAnd", []uint64{12, 10}, []uint64{8}, 0},
-	{"mul", []uint64{6, 7}, []uint64{42}, 0},
-	{"div", []uint64{17, 5}, []uint64{3}, 0},
-	{"rem", []uint64{17, 5}, []uint64{2}, 0},
-	{"shl", []uint64{3, 4}, []uint64{48}, 0},
-	{"shr", []uint64{100, 2}, []uint64{25}, 0},
 	{"logOr", []uint64{3, 5}, []uint64{0, 1, 1, 1}, 0},
 	{"logAnd", []uint64{3, 5}, []uint64{0, 0, 0, 1}, 0},
 	{"not", []uint64{3, 5}, []uint64{0, 1, 0, 1, 1}, 0},
@@ -47,6 +38,27 @@ var tests = []*testT{
 	{"leq", []uint64{3, 5}, []uint64{1, 1, 0}, 0},
 	{"gt", []uint64{3, 5}, []uint64{0, 0, 1}, 0},
 	{"geq", []uint64{3, 5}, []uint64{0, 1, 1}, 0},
+
+	// arith.go
+	{"add", []uint64{3, 4}, []uint64{7}, 0},
+	{"add8", []uint64{100}, []uint64{uint64(-56&0xFFFFFFFFFFFFFFFF)}, 0},
+	{"add8u", []uint64{200}, []uint64{144}, 0},
+	{"sub", []uint64{10, 3}, []uint64{7}, 0},
+	{"bitXor", []uint64{12, 10}, []uint64{6}, 0},
+	{"bitOr", []uint64{12, 10}, []uint64{14}, 0},
+	{"bitAnd", []uint64{12, 10}, []uint64{8}, 0},
+	{"mul", []uint64{6, 7}, []uint64{42}, 0},
+	{"div", []uint64{17, 5}, []uint64{3}, 0},
+	{"rem", []uint64{17, 5}, []uint64{2}, 0},
+	{"shl", []uint64{3, 4}, []uint64{48}, 0},
+	{"shr", []uint64{100, 2}, []uint64{25}, 0},
+	{"convInt8", []uint64{200}, []uint64{18446744073709551560, 16777215, 200, 18446744073709551560, 65480, 18446744073709551560, 16777215, 18446744073709551560, 16777215}, 0},
+	{"convUint8", []uint64{200}, []uint64{144, 18446744073709551504, 144, 144, 144, 144, 144, 144}, 0},
+	{"convInt16", []uint64{40000}, []uint64{18446744073709526080, 16777215, 64, 64, 40000, 18446744073709526080, 16777116, 18446744073709526080, 16777215}, 0},
+	{"convUint16", []uint64{40000}, []uint64{14464, 18446744073709551488, 128, 14464, 14464, 14464, 18446744073709526080, 40000, 40000}, 0},
+	{"convInt32", []uint64{3000000200}, []uint64{18446744072414584520, 16777215, 18446744073709551560, 200, 24264, 24264, 11718750, 18446744072414584520, 16777215}, 0},
+	{"convUint32", []uint64{3000000200}, []uint64{1705033104, 18446744073709551504, 144, 18446744073709534608, 48528, 1705033104, 18446744072414584520, 11718750, 11718750}, 0},
+	{"convInt64", []uint64{0x7FFFFFFFFFFFFF80, 0x7FFFFFFFFFFFFF80}, []uint64{18446744073709551488, 128, 18446744073709551488, 65408, 18446744073709551488, 16777215, 8388607, 18446744073709551488, 128, 18446744073709551488, 65408, 18446744073709551488, 16777215, 8388607}, 0},
 
 	// Constant-folding tests: each of these takes no inputs and
 	// computes its result entirely from literals.  If the compiler
@@ -69,6 +81,18 @@ var tests = []*testT{
 	{"shlConst", nil, []uint64{16}, 7},
 	{"shrConst", nil, []uint64{8}, 7},
 	{"remConst", nil, []uint64{2}, 7},
+
+	// regression.go: known problems, enabled once they are fixed.
+	//{"negVar", []uint64{3}, []uint64{7}, 0},
+	//{"negConst", []uint64{100}, []uint64{44}, 0},
+	//{"bigLiteral", []uint64{1}, []uint64{30001, 19088743}, 0},
+	//{"printBig", []uint64{3000000000}, []uint64{3000000000}, 0},
+	//{"printNarrow", []uint64{200}, []uint64{uint64(-56 & 0xFFFFFFFFFFFFFFFF)}, 0},
+	//{"narrowEq", []uint64{200}, []uint64{1, 0}, 0},
+	//{"narrowLt", []uint64{200}, []uint64{1, 1}, 0},
+	//{"narrowDiv", []uint64{200}, []uint64{72, 4}, 0},
+	//{"narrowShr", []uint64{200}, []uint64{72}, 0},
+	//{"convConst", nil, []uint64{44}, 7},
 }
 
 var gdbServer = flag.Bool("gdb", false, "Run GDB server.")

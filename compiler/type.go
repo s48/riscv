@@ -37,6 +37,12 @@ var basicTypes = map[types.BasicKind]nativeTypeT{
 	types.Bool:        theBoolType,
 	types.UntypedBool: theBoolType,
 	types.UntypedInt:  theInt64Type,
+	types.Int8:        theInt8Type,
+	types.Uint8:       theUint8Type,
+	types.Int16:       theInt16Type,
+	types.Uint16:      theUint16Type,
+	types.Int32:       theInt32Type,
+	types.Uint32:      theUint32Type,
 	types.Int:         theInt64Type,
 	types.Int64:       theInt64Type,
 	types.Uint:        theUint64Type,
@@ -72,6 +78,12 @@ type nativeTypeKindT int
 
 const (
 	boolType = iota
+	int8Type
+	uint8Type
+	int16Type
+	uint16Type
+	int32Type
+	uint32Type
 	int64Type
 	uint64Type
 	pointerType
@@ -90,17 +102,23 @@ type nativeTypeT interface {
 type atomicTypeT struct {
 	nativeKind nativeTypeKindT
 	name       string
+	size       int
 }
 
 func (atomic *atomicTypeT) kind() nativeTypeKindT  { return atomic.nativeKind }
-func (atomic *atomicTypeT) setSizes(sizes []int)   {}
-func (atomic *atomicTypeT) sizeBytes() int         { return 8 }
+func (atomic *atomicTypeT) sizeBytes() int         { return atomic.size }
 func (atomic *atomicTypeT) Underlying() types.Type { return atomic }
 func (atomic *atomicTypeT) String() string         { return atomic.name }
 
-var theBoolType = &atomicTypeT{boolType, "bool"}
-var theInt64Type = &atomicTypeT{int64Type, "int64"}
-var theUint64Type = &atomicTypeT{uint64Type, "uint64"}
+var theBoolType = &atomicTypeT{boolType, "bool", 1}
+var theInt8Type = &atomicTypeT{int8Type, "int8", 1}
+var theUint8Type = &atomicTypeT{uint8Type, "uint8", 1}
+var theInt16Type = &atomicTypeT{int16Type, "int16", 2}
+var theUint16Type = &atomicTypeT{uint16Type, "uint16", 2}
+var theInt32Type = &atomicTypeT{int32Type, "int32", 4}
+var theUint32Type = &atomicTypeT{uint32Type, "uint32", 4}
+var theInt64Type = &atomicTypeT{int64Type, "int64", 8}
+var theUint64Type = &atomicTypeT{uint64Type, "uint64", 8}
 
 type nativePointerT struct {
 	contents nativeTypeT
