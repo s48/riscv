@@ -36,6 +36,7 @@ var tests = []*testT{
 	{"arrayCopyBig", []uint64{5}, []uint64{50, 5, 3, 0, 0, 0}, 0},
 	{"arrayPointer", []uint64{1}, []uint64{20, 7, 30, 7, 5}, 0},
 	{"arrayAddress", []uint64{1}, []uint64{5, 9, 4, 5, 6}, 0},
+	{"arrayRange", []uint64{2}, []uint64{3, 60, 60, 90, 21}, 0},
 	{"arrayBig", []uint64{299}, []uint64{2990, 299, 0}, 0},
 	{"logOr", []uint64{3, 5}, []uint64{0, 1, 1, 1}, 0},
 	{"logAnd", []uint64{3, 5}, []uint64{0, 0, 0, 1}, 0},

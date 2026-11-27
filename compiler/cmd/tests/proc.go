@@ -368,6 +368,52 @@ func arrayAddress(n int) int {
 	return 0
 }
 
+// Ranging over arrays, with and without values, over a pointer to an
+// array, and over an array of arrays.  The values come from a copy of
+// the array, so changing it in the loop doesn't change them, but the
+// values from a pointer are not copied.
+// n = 2 -> 3, 60, 60, 90, 21
+func arrayRange(n int) int {
+	var a [3]int
+	for i := range a {
+		a[i] = (i + 1) * 10
+	}
+	count := 0
+	for range a {
+		count++
+	}
+	print(count)
+	sum := 0
+	for i, v := range a {
+		a[2] = 100 // not seen by v
+		sum += v
+		a[i] = v
+	}
+	print(sum)
+	a[2] = 30
+	sum = 0
+	for _, v := range &a {
+		sum += v
+	}
+	print(sum)
+	sum = 0
+	for i, v := range &a {
+		if i == 0 {
+			a[n] = 60 // seen by v
+		}
+		sum += v
+	}
+	print(sum)
+	var b [2][3]int
+	b[1][n] = 21
+	last := 0
+	for _, row := range b {
+		last = row[n]
+	}
+	print(last)
+	return 0
+}
+
 // An array too big for an addi immediate, and two arrays, to check
 // that they don't overlap.
 // n = 299 -> 2990, 299, 0
