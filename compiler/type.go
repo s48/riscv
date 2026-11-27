@@ -127,7 +127,7 @@ type nativePointerT struct {
 func (pointer *nativePointerT) kind() nativeTypeKindT  { return pointerType }
 func (pointer *nativePointerT) sizeBytes() int         { return 8 }
 func (pointer *nativePointerT) Underlying() types.Type { return pointer }
-func (pointer *nativePointerT) String() string         {
+func (pointer *nativePointerT) String() string {
 	return fmt.Sprintf("pointer(%s)", pointer.contents)
 }
 

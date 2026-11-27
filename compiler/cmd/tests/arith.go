@@ -289,3 +289,42 @@ func convInt64(x int, y uint) int {
 	print(int64(y) >> 40)
 	return 0
 }
+
+// Results that carry out of a narrow type have to wrap before they are
+// compared, shifted, or divided.
+// x = 100 -> 1, 44, 36, 5
+func narrowWrap(x int) int {
+	a := int8(x)
+	r0 := 0
+	if a+a < 0 { // 200 is -56 as an int8
+		r0 = 1
+	}
+	print(r0)
+	print(int(a * 3)) // 300 is 44 as an int8
+	b := uint16(x)
+	print(int((b << 10) >> 10)) // 102400 is 36864 as a uint16
+	c := uint8(x)
+	print(int((c + c) / 36)) // 200 / 36
+	return 0
+}
+
+// Constants at the edges of loadImmediate's cases: 12 bits, 32 bits,
+// and 64 bits, including ones where the low 12 bits round the upper
+// part up.
+func bigConsts() int {
+	print(2047)
+	print(-2048)
+	print(2048)
+	print(-2049)
+	print(0x7FFFF800)
+	print(0x7FFFFFFF)
+	print(-0x80000000)
+	print(0x80000000)
+	print(0xFFFFFFFF)
+	print(0x123456789ABCDEF0)
+	print(0x7FFFFFFFFFFFFFFF)
+	print(-0x8000000000000000)
+	print(uint(0xFFFFFFFFFFFFFFFF))
+	print(uint(0x8000000000000800))
+	return 0
+}

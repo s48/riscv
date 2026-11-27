@@ -56,6 +56,8 @@ var tests = []*testT{
 	{"bitNot", []uint64{12}, []uint64{uint64(-13 & 0xFFFFFFFFFFFFFFFF)}, 0},
 	{"unaryNarrow", []uint64{5}, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF), 251, uint64(-6 & 0xFFFFFFFFFFFFFFFF), 250}, 0},
 	{"unaryNarrowConst", nil, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF), 251, uint64(-6 & 0xFFFFFFFFFFFFFFFF), 250}, 0},
+	{"narrowWrap", []uint64{100}, []uint64{1, 44, 36, 5}, 0},
+	{"bigConsts", nil, []uint64{2047, 18446744073709549568, 2048, 18446744073709549567, 2147481600, 2147483647, 18446744071562067968, 2147483648, 4294967295, 1311768467463790320, 9223372036854775807, 9223372036854775808, 18446744073709551615, 9223372036854777856}, 0},
 	{"convInt8", []uint64{200}, []uint64{18446744073709551560, 16777215, 200, 18446744073709551560, 65480, 18446744073709551560, 16777215, 18446744073709551560, 16777215}, 0},
 	{"convUint8", []uint64{200}, []uint64{144, 18446744073709551504, 144, 144, 144, 144, 144, 144}, 0},
 	{"convInt16", []uint64{40000}, []uint64{18446744073709526080, 16777215, 64, 64, 40000, 18446744073709526080, 16777116, 18446744073709526080, 16777215}, 0},
@@ -75,36 +77,36 @@ var tests = []*testT{
 	// count, not just by eyeballing a listing), so a regression that
 	// silently stops folding -- but still prints the right answer --
 	// fails the test anyway.
-	{"addConst", nil, []uint64{5}, 7},
-	{"subConst", nil, []uint64{7}, 7},
-	{"bitXorConst", nil, []uint64{6}, 7},
-	{"bitOrConst", nil, []uint64{14}, 7},
-	{"bitAndConst", nil, []uint64{8}, 7},
-	{"mulConst", nil, []uint64{42}, 7},
-	{"divConst", nil, []uint64{3}, 7},
-	{"shlConst", nil, []uint64{16}, 7},
-	{"shrConst", nil, []uint64{8}, 7},
-	{"remConst", nil, []uint64{2}, 7},
-	{"negateConst", nil, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF)}, 7},
-	{"bitNotConst", nil, []uint64{uint64(-13 & 0xFFFFFFFFFFFFFFFF)}, 7},
+	{"addConst", nil, []uint64{5}, 6},
+	{"subConst", nil, []uint64{7}, 6},
+	{"bitXorConst", nil, []uint64{6}, 6},
+	{"bitOrConst", nil, []uint64{14}, 6},
+	{"bitAndConst", nil, []uint64{8}, 6},
+	{"mulConst", nil, []uint64{42}, 6},
+	{"divConst", nil, []uint64{3}, 6},
+	{"shlConst", nil, []uint64{16}, 6},
+	{"shrConst", nil, []uint64{8}, 6},
+	{"remConst", nil, []uint64{2}, 6},
+	{"negateConst", nil, []uint64{uint64(-5 & 0xFFFFFFFFFFFFFFFF)}, 6},
+	{"bitNotConst", nil, []uint64{uint64(-13 & 0xFFFFFFFFFFFFFFFF)}, 6},
 
 	// regression.go: bugs that have been fixed.
 	{"negVar", []uint64{3}, []uint64{7}, 0},
 	{"negConst", []uint64{100}, []uint64{44}, 0},
+	{"printNarrow", []uint64{200}, []uint64{uint64(-56 & 0xFFFFFFFFFFFFFFFF)}, 0},
+	{"narrowEq", []uint64{200}, []uint64{1, 0}, 0},
+	{"narrowLt", []uint64{200}, []uint64{1, 1}, 0},
+	{"narrowDiv", []uint64{200}, []uint64{72, 4}, 0},
+	{"narrowShr", []uint64{200}, []uint64{72}, 0},
+	{"bigLiteral", []uint64{1}, []uint64{30001, 19088743}, 0},
+	{"printBig", []uint64{3000000000}, []uint64{3000000000}, 0},
 }
 
 // Tests for the known bugs in bug.go.  These are run only when asked
 // for by name with -test.  When a bug is fixed, its test moves to
 // regression.go and its entry to the table above.
 var bugTests = []*testT{
-	{"bigLiteral", []uint64{1}, []uint64{30001, 19088743}, 0},
-	{"printBig", []uint64{3000000000}, []uint64{3000000000}, 0},
-	{"printNarrow", []uint64{200}, []uint64{uint64(-56 & 0xFFFFFFFFFFFFFFFF)}, 0},
-	{"narrowEq", []uint64{200}, []uint64{1, 0}, 0},
-	{"narrowLt", []uint64{200}, []uint64{1, 1}, 0},
-	{"narrowDiv", []uint64{200}, []uint64{72, 4}, 0},
-	{"narrowShr", []uint64{200}, []uint64{72}, 0},
-	{"convConst", nil, []uint64{44}, 7},
+	{"convConst", nil, []uint64{44}, 6},
 }
 
 var gdbServer = flag.Bool("gdb", false, "Run GDB server.")

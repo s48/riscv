@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/token"
+	"math/bits"
 	"slices"
 
 	"github.com/s48/transform/cps"
@@ -488,8 +489,57 @@ func parallelMove(insts *riscvInstsT, moves []cps.RegMoveT) {
 	}
 }
 
+// A narrow literal is wrapped to its type's size, as constant folding
+// does not (uint8 200 + 100 folds to 300).
 func (insts *riscvInstsT) loadConstant(literal cps.NodeT, to cps.RegisterT) {
-	insts.iFormat(valueAsInt(literal), r0, 0, to, 0x13)
+	value := valueAsInt(literal)
+	typ, isNative := literal.(*cps.LiteralNodeT).Type.(nativeTypeT)
+	if isNative && typ.sizeBytes() < 8 {
+		value = wrapInt(value, typ.sizeBytes(), isSignedType(typ))
+	}
+	insts.loadImmediate(value, to)
+}
+
+// Load any 64-bit value into 'dest', using only 'dest'.
+//   - 12 bits: addi dest, zero, value
+//   - 32 bits: lui dest, hi20; addiw dest, dest, lo12.  addiw, not
+//     addi, as hi20 may be 0x80000 (lui gives -2^31), and the 32-bit
+//     wraparound then gives the right value.
+//   - otherwise: load the value without its low 12 bits, shifted right
+//     as far as its trailing zeros allow, then slli and addi lo12.
+//
+// lo12 is the sign-extended low 12 bits, so the part above it is
+// 'value - lo12', which may round up.
+func (insts *riscvInstsT) loadImmediate(value int, dest any) {
+	if signedLen(value) <= 12 {
+		insts.addImm(r0, dest, value)
+		return
+	}
+	lo12 := (value << 52) >> 52
+	if signedLen(value) <= 32 {
+		hi20 := (value - lo12) >> 12
+		insts.lui(uint32(hi20&0xFFFFF), dest)
+		if lo12 != 0 {
+			insts.iFormat(lo12, dest, 0, dest, 0x1B) // addiw
+		}
+		return
+	}
+	hi := (value - lo12) >> 12
+	shift := 12 + bits.TrailingZeros64(uint64(hi))
+	insts.loadImmediate((value-lo12)>>shift, dest)
+	insts.iFormat(shift, dest, 1, dest, 0x13) // slli
+	if lo12 != 0 {
+		insts.addImm(dest, dest, lo12)
+	}
+}
+
+// Sign- or zero-extend the low 'numBytes' of 'value'.
+func wrapInt(value int, numBytes int, signed bool) int {
+	shift := 64 - 8*numBytes
+	if signed {
+		return (value << shift) >> shift
+	}
+	return int(uint(value<<shift) >> shift)
 }
 
 func (insts *riscvInstsT) moveLocation(from cps.RegLocationT, to cps.RegLocationT) {
@@ -607,97 +657,13 @@ func simplifyNot(call *cps.CallNodeT) {
 
 type addressOfPrimopT struct{}
 
-func (primop *addressOfPrimopT) Name() string      { return "addressOf" }
-func (primop *addressOfPrimopT) SideEffects() bool { return false }
-func (primop *addressOfPrimopT) Simplify(call *cps.CallNodeT)  { cps.DefaultSimplify(call) }
+func (primop *addressOfPrimopT) Name() string                 { return "addressOf" }
+func (primop *addressOfPrimopT) SideEffects() bool            { return false }
+func (primop *addressOfPrimopT) Simplify(call *cps.CallNodeT) { cps.DefaultSimplify(call) }
 func (primop *addressOfPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
 	return nil, nil
 }
 func (primop *addressOfPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-}
-
-//----------------------------------------------------------------
-
-func init() {
-	addPrimop(&convertIntPrimopT{"int8", 1, true})
-	addPrimop(&convertIntPrimopT{"uint8", 1, false})
-	addPrimop(&convertIntPrimopT{"int16", 2, true})
-	addPrimop(&convertIntPrimopT{"uint16", 2, false})
-	addPrimop(&convertIntPrimopT{"int32", 4, true})
-	addPrimop(&convertIntPrimopT{"uint32", 4, false})
-	addPrimop(&convertIntPrimopT{"int64", 8, true})
-	addPrimop(&convertIntPrimopT{"uint64", 8, false})
-	addPrimop(&convertIntPrimopT{"int", 8, true})
-	addPrimop(&convertIntPrimopT{"uint", 8, false})
-}
-
-type convertIntPrimopT struct{
-	name string
-	numBytes int
-	signed bool
-}
-
-func (primop *convertIntPrimopT) Name() string      { return primop.name }
-func (primop *convertIntPrimopT) SideEffects() bool { return false }
-// This will need to simplify constants.
-func (primop *convertIntPrimopT) Simplify(call *cps.CallNodeT)  { cps.DefaultSimplify(call) }
-func (primop *convertIntPrimopT) RegisterUsage(call *cps.CallNodeT) (regUsesT, regUsesT) {
-	return uses(intIn), uses(intOut)
-}
-// A register holding a value narrower than 64 bits has the value in its
-// low bytes; the bits above them are unspecified, as arithmetic on the
-// value (z + 1 for an int8 z, say) can carry into them.  Going down in
-// size, or staying the same size, is then just a move.  Going up, the
-// value is sign- or zero-extended from its old size, using the old
-// type's signedness, as Go does (int8(-1) -> uint64 is 0xFFFF...FFFF).
-func (primop *convertIntPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	var argType nativeTypeT
-	rawArg := call.Inputs[0]
-	switch arg := rawArg.(type) {
-	case *cps.ReferenceNodeT:
-		argType = arg.Variable.Type.(nativeTypeT)
-	case *cps.LiteralNodeT:
-		argType = arg.Type.(nativeTypeT)
-	default:
-		panic(fmt.Sprintf("convertIntPrimopT got an odd argument %T", arg))
-	}
-	in := call.Inputs[0]
-	out := call.Outputs[0]
-	argNumBytes := argType.sizeBytes()
-	if primop.numBytes <= argNumBytes {
-		if regNumber(in) != regNumber(out) {
-			insts.move(in, out)
-		}
-	} else {
-		insts.extend(in, out, argNumBytes, isSignedType(argType))
-	}
-}
-
-func isSignedType(typ nativeTypeT) bool {
-	switch typ.kind() {
-	case int8Type, int16Type, int32Type, int64Type:
-		return true
-	}
-	return false
-}
-
-// Sign- or zero-extend the low 'numBytes' of 'source' into 'dest'.
-func (insts *riscvInstsT) extend(source any, dest any, numBytes int, signed bool) {
-	if signed && numBytes == 4 {
-		insts.iFormat(0, source, 0, dest, 0x1B) // addiw dest, source, 0 (sext.w)
-		return
-	}
-	if !signed && numBytes == 1 {
-		insts.iFormat(0xFF, source, 7, dest, 0x13) // andi dest, source, 0xFF
-		return
-	}
-	shift := 64 - 8*numBytes
-	insts.iFormat(shift, source, 1, dest, 0x13) // slli
-	if signed {
-		insts.iFormat(0x400|shift, dest, 5, dest, 0x13) // srai
-	} else {
-		insts.iFormat(shift, dest, 5, dest, 0x13) // srli
-	}
 }
 
 //----------------------------------------------------------------
@@ -723,9 +689,8 @@ func (primop *printPrimopT) ClobberedRegisters(call *cps.CallNodeT) []cps.Regist
 
 // The value has already been moved to a0.
 func (primop *printPrimopT) generate(insts *riscvInstsT, call *cps.CallNodeT) {
-	insts.iFormat(1, r0, 0, rArg7, 0x13)        // 1 = PrintInteger
-	insts.rFormat(0, r0, rArg0, 0, rArg0, 0x3B) // addw a0, a0, zero
-	insts.iFormat(0, r0, 0, r0, 0x73)           // ecall
+	insts.iFormat(1, r0, 0, rArg7, 0x13) // 1 = PrintInteger
+	insts.iFormat(0, r0, 0, r0, 0x73)    // ecall
 }
 
 //----------------------------------------------------------------
